@@ -1,0 +1,52 @@
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import { CodingWorkspace } from '@/components/coding/CodingWorkspace';
+import { BackButton } from '@/components/BackButton';
+import { GradingPending } from '@/components/GradingPending';
+import { RoundExam } from '@/components/RoundExam';
+import { RoundIntro } from '@/components/RoundIntro';
+import { RoundResultView } from '@/components/RoundResultView';
+import { requireCandidatePage } from '@/lib/auth';
+import { ROUND_TYPES } from '@/lib/pipeline';
+import { getRoundPage } from '@/lib/rounds';
+import { AppError } from '@/lib/http';
+
+export const dynamic = 'force-dynamic';
+
+export default async function RoundPage({ params }: { params: Promise<{ type: string }> }) {
+  const { type } = await params;
+  if (!(ROUND_TYPES as readonly string[]).includes(type)) notFound();
+  const session = await requireCandidatePage();
+
+  let state;
+  try {
+    state = await getRoundPage(session, type as (typeof ROUND_TYPES)[number]);
+  } catch (e) {
+    if (e instanceof AppError && e.status === 404) notFound();
+    throw e;
+  }
+
+  // The coding workspace fills the whole window, like other coding platforms.
+  if (state.phase === 'coding') return <CodingWorkspace coding={state.coding} />;
+
+  return (
+    <main className="mx-auto max-w-3xl space-y-6 p-8">
+      {state.phase !== 'exam' && (
+        <div className="flex items-center justify-between">
+          <BackButton href="/dashboard" label="Back to dashboard" />
+        </div>
+      )}
+
+      {state.phase === 'intro' && <RoundIntro round={state.round} canStart={state.canStart} blockedReason={state.blockedReason} />}
+      {state.phase === 'exam' && <RoundExam roundType={type} exam={state.exam} />}
+      {state.phase === 'grading' && <GradingPending round={state.round} />}
+      {state.phase === 'result' && (
+        <RoundResultView round={state.round} result={state.result} nextHref={state.nextRoundType ? `/round/${state.nextRoundType}` : null}>
+          <Link href="/dashboard" className="text-sm font-medium underline">
+            Back to dashboard
+          </Link>
+        </RoundResultView>
+      )}
+    </main>
+  );
+}

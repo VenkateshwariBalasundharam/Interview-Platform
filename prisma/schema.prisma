@@ -1,0 +1,432 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── Enums ─────────────────────────
+
+enum RoundType {
+  ASSESSMENT
+  TECHNICAL
+  CODING
+  SYSTEM_DESIGN
+  SCENARIO
+  HR
+  MANAGER
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum CutoffMode {
+  DISQUALIFY
+  FLAG_FOR_REVIEW
+}
+
+enum ProctoringLevel {
+  OFF
+  PRESENCE
+  IDENTITY
+}
+
+enum ResultMode {
+  AUTO_SUGGEST
+  ALWAYS_HUMAN_REVIEW
+}
+
+enum RetakePolicy {
+  NONE
+  ADMIN_GRANTED
+}
+
+enum Tier {
+  FRESHER
+  MID
+  SENIOR
+}
+
+enum CandidateStatus {
+  ACTIVE
+  DISQUALIFIED
+  PENDING_REVIEW
+  COMPLETED
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+  GRADED
+}
+
+enum QuestionKind {
+  MCQ
+  SHORT_ANSWER
+  WRITTEN
+}
+
+enum QuestionSetStatus {
+  DRAFT
+  APPROVED
+  LOCKED
+}
+
+enum ProctorEventType {
+  TAB_SWITCH
+  PASTE
+  FULLSCREEN_EXIT
+  NO_FACE
+  MULTIPLE_FACES
+  LOOKING_AWAY
+  IDENTITY_MISMATCH
+}
+
+// ───────────────────────── Admin ─────────────────────────
+
+model AdminUser {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  humanScores HumanScore[]
+}
+
+// ───────────────────────── Jobs & pipeline ─────────────────────────
+
+/// Running counters. `candidateNumber` holds the last Candidate ID handed out (IDs start at 1001 and are never reused).
+model Counter {
+  key   String @id
+  value Int
+}
+
+model Job {
+  id             String       @id @default(cuid())
+  title          String
+  jdText         String
+  requiredSkills String[]
+  tier           Tier
+  resultMode     ResultMode   @default(AUTO_SUGGEST)
+  retakePolicy   RetakePolicy @default(NONE)
+  clonedFromId   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  rounds         RoundConfig[]
+  candidates     Candidate[]
+  questionSets   QuestionSet[]
+  codingProblems CodingProblem[]
+}
+
+model RoundConfig {
+  id              String          @id @default(cuid())
+  jobId           String
+  roundType       RoundType
+  position        Int
+  enabled         Boolean         @default(true)
+  cutoffPercent   Int
+  weight          Int
+  durationMinutes Int
+  questionCount   Int
+  difficulty      Difficulty      @default(MEDIUM)
+  cutoffMode      CutoffMode      @default(DISQUALIFY)
+  proctoringLevel ProctoringLevel @default(OFF)
+  required        Boolean         @default(true)
+  humanScored     Boolean         @default(false)
+
+  job Job @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, position])
+  @@unique([jobId, roundType])
+}
+
+// ───────────────────────── Candidates ─────────────────────────
+
+model Candidate {
+  id               String          @id @default(cuid())
+  candidateCode    String          @unique
+  name             String
+  email            String
+  dobHash          String
+  jobId            String
+  status           CandidateStatus @default(ACTIVE)
+  failedLoginCount Int             @default(0)
+  lockedUntil      DateTime?
+  sessionId        String?
+  lastLoginAt      DateTime?
+  resumePath       String?
+  resumeUploadedAt DateTime?
+  resumeParsed     Json?
+  resumeParsedAt   DateTime?
+  resumeParseError String?
+  createdAt        DateTime        @default(now())
+
+  job           Job               @relation(fields: [jobId], references: [id])
+  attempts      Attempt[]
+  proctorEvents ProctorEvent[]
+  snapshots     ProctorSnapshot[]
+  faceReference FaceReference?
+  consents      ConsentRecord[]
+  humanScores   HumanScore[]
+  result        Result?
+  fitSummary    FitSummary?
+
+  @@unique([jobId, email])
+  @@index([jobId])
+}
+
+// ───────────────────────── Questions ─────────────────────────
+
+model QuestionSet {
+  id          String            @id @default(cuid())
+  jobId       String
+  roundType   RoundType
+  version     Int               @default(1)
+  status      QuestionSetStatus @default(DRAFT)
+  candidateId String? // set for per-candidate sets (TECHNICAL, HR)
+  lockedAt    DateTime?
+  createdAt   DateTime          @default(now())
+
+  job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  questions Question[]
+
+  @@index([jobId, roundType])
+}
+
+model Question {
+  id           String       @id @default(cuid())
+  setId        String
+  kind         QuestionKind
+  position     Int
+  prompt       String
+  options      Json? // MCQ options (never sent with the key)
+  correctIndex Int? // answer key: server only
+  rubric       Json? // grading rubric: server only
+  points       Int          @default(1)
+  difficulty   Difficulty   @default(MEDIUM)
+
+  set     QuestionSet @relation(fields: [setId], references: [id], onDelete: Cascade)
+  answers Answer[]
+
+  @@index([setId])
+}
+
+model CodingProblem {
+  id           String     @id @default(cuid())
+  jobId        String?
+  title        String
+  statement    String
+  difficulty   Difficulty
+  tier         Tier?
+  starterCode  Json?
+  timeLimitSec Float      @default(2)
+  createdAt    DateTime   @default(now())
+
+  job       Job?           @relation(fields: [jobId], references: [id])
+  testCases TestCase[]
+  answers   CodingAnswer[]
+}
+
+model TestCase {
+  id             String  @id @default(cuid())
+  problemId      String
+  input          String
+  expectedOutput String // server only
+  isSample       Boolean @default(false)
+
+  problem CodingProblem @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId])
+}
+
+// ───────────────────────── Attempts ─────────────────────────
+
+model Attempt {
+  id          String        @id @default(cuid())
+  candidateId String
+  roundType   RoundType
+  status      AttemptStatus @default(IN_PROGRESS)
+  startedAt   DateTime      @default(now())
+  deadlineAt  DateTime
+  submittedAt DateTime?
+  score       Float?
+  maxScore    Float?
+  percent     Float?
+  seed        String?
+
+  candidate     Candidate      @relation(fields: [candidateId], references: [id])
+  answers       Answer[]
+  codingAnswers CodingAnswer[]
+  proctorEvents ProctorEvent[]
+
+  @@unique([candidateId, roundType])
+}
+
+model Answer {
+  id         String   @id @default(cuid())
+  attemptId  String
+  questionId String
+  response   Json?
+  score      Float?
+  feedback   String?
+  savedAt    DateTime @default(now()) @updatedAt
+
+  attempt  Attempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question Question @relation(fields: [questionId], references: [id])
+
+  @@unique([attemptId, questionId])
+}
+
+/// One row per problem pinned to a coding attempt. Holds the working draft and the best graded submission.
+model CodingAnswer {
+  id                String    @id @default(cuid())
+  attemptId         String
+  problemId         String
+  position          Int
+  language          String    @default("python")
+  code              String    @default("")
+  submissions       Int       @default(0)
+  passed            Int       @default(0)
+  total             Int       @default(0)
+  score             Float? // fraction 0..1 of tests passed by the best submission; null until submitted
+  submittedLanguage String?
+  submittedCode     String?
+  lastVerdict       String?
+  submittedAt       DateTime?
+  savedAt           DateTime  @default(now()) @updatedAt
+
+  attempt Attempt       @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  problem CodingProblem @relation(fields: [problemId], references: [id])
+
+  @@unique([attemptId, problemId])
+}
+
+// ───────────────────────── Proctoring ─────────────────────────
+
+model ProctorEvent {
+  id          String           @id @default(cuid())
+  candidateId String
+  attemptId   String?
+  roundType   RoundType
+  type        ProctorEventType
+  occurredAt  DateTime         @default(now())
+  meta        Json?
+
+  candidate Candidate        @relation(fields: [candidateId], references: [id])
+  attempt   Attempt?         @relation(fields: [attemptId], references: [id])
+  snapshot  ProctorSnapshot?
+
+  @@index([candidateId, roundType])
+}
+
+model ProctorSnapshot {
+  id          String   @id @default(cuid())
+  eventId     String   @unique
+  candidateId String
+  storageKey  String   @unique
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  event     ProctorEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  candidate Candidate    @relation(fields: [candidateId], references: [id])
+
+  @@index([expiresAt])
+}
+
+model FaceReference {
+  id           String   @id @default(cuid())
+  candidateId  String   @unique
+  embeddingEnc Bytes // AES-256-GCM ciphertext
+  iv           Bytes
+  authTag      Bytes
+  createdAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+}
+
+model ConsentRecord {
+  id          String   @id @default(cuid())
+  candidateId String
+  version     String
+  acceptedAt  DateTime @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId])
+}
+
+// ───────────────────────── Human scoring & results ─────────────────────────
+
+model HumanScore {
+  id          String    @id @default(cuid())
+  candidateId String
+  roundType   RoundType
+  score       Int
+  notes       String?
+  adminId     String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  admin     AdminUser @relation(fields: [adminId], references: [id])
+
+  @@unique([candidateId, roundType])
+}
+
+model Result {
+  id                 String    @id @default(cuid())
+  candidateId        String    @unique
+  weightedScore      Float
+  suggestedDecision  String
+  finalDecision      String?
+  pendingHumanReview Boolean   @default(true)
+  decidedBy          String?
+  decidedAt          DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+/// AI job-fit summary written from the JD, the parsed resume and the HR answers. Advisory only: never changes a score or decision.
+model FitSummary {
+  id          String   @id @default(cuid())
+  candidateId String   @unique
+  data        Json
+  generatedAt DateTime @default(now()) @updatedAt
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────── Audit & rate limiting ─────────────────────────
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorType String
+  actorId   String?
+  action    String
+  entity    String?
+  entityId  String?
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+}
+
+model RateLimit {
+  key         String   @id
+  count       Int
+  windowStart DateTime
+}
