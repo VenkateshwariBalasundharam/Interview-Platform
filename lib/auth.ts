@@ -1,3 +1,4 @@
+import { ADMIN_LOGIN_PATH } from '@/lib/admin-paths';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { NextResponse } from 'next/server';
@@ -74,7 +75,7 @@ export async function requireCandidate(): Promise<CandidateSession> {
 
 export async function requireAdminPage(): Promise<AdminSession> {
   const admin = await getAdminSession();
-  if (!admin) redirect('/admin/login');
+  if (!admin) redirect(ADMIN_LOGIN_PATH);
   return admin;
 }
 

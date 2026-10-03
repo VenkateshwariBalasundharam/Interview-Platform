@@ -23,9 +23,14 @@ export default async function ResultsPage({ searchParams }: { searchParams: Prom
             Weighted scores and suggested decisions. A suggestion is never final until an admin confirms it. {pending > 0 && <span className="font-medium text-foreground">{pending} waiting for a decision.</span>}
           </p>
         </div>
-        <a href={`/api/admin/results/export${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`} className="rounded-md border bg-card px-3 py-1.5 text-sm hover:bg-muted">
-          Download CSV
-        </a>
+        <div className="flex gap-2">
+          <a href={`/api/admin/results/export${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`} className="rounded-md border bg-card px-3 py-1.5 text-sm hover:bg-muted">
+            Download CSV
+          </a>
+          <a href={`/api/admin/results/export-pdf${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`} className="rounded-md border bg-card px-3 py-1.5 text-sm hover:bg-muted">
+            Download PDF
+          </a>
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2 text-sm">

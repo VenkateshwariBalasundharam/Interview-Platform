@@ -28,6 +28,9 @@ export function FinalResultCard({ candidateId, view }: { candidateId: string; vi
         <CardHeader>
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle>Final result</CardTitle>
+            <a href={`/api/admin/candidates/${candidateId}/result-pdf`} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:bg-muted">
+              Download PDF
+            </a>
             {finalDecision ? <Badge tone={finalDecision === 'SHORTLIST' ? 'good' : 'bad'}>decided: {SUGGESTION_LABEL[finalDecision].toLowerCase()}</Badge> : result.suggestion && <Badge tone="warn">waiting for your decision</Badge>}
           </div>
           <CardDescription>

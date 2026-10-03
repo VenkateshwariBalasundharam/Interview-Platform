@@ -28,6 +28,8 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     difficulty: r.difficulty,
     cutoffMode: r.cutoffMode,
     proctoringLevel: r.proctoringLevel,
+    maxTabSwitches: r.maxTabSwitches,
+    blockPaste: r.blockPaste,
     required: r.required,
     humanScored: r.humanScored,
   }));

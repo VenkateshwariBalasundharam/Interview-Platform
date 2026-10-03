@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { CodeEditor } from '@/components/coding/CodeEditor';
+import { useProctor } from '@/components/proctoring/ProctorGate';
 import { apiFetch } from '@/lib/api-client';
 import {
   CODING_LANGUAGES,
@@ -31,6 +32,7 @@ type Report = RunReport | CustomRunReport;
 
 export function CodingWorkspace({ coding }: { coding: CodingView }) {
   const router = useRouter();
+  const proctor = useProctor();
   const [activeId, setActiveId] = useState(coding.problems[0]?.id ?? '');
   const [languages, setLanguages] = useState<Record<string, CodingLanguageId>>(() => Object.fromEntries(Object.entries(coding.drafts).map(([id, d]) => [id, d.language])));
   // One working copy per problem and language, so switching language never loses what was typed.
@@ -134,13 +136,14 @@ export function CodingWorkspace({ coding }: { coding: CodingView }) {
     setFinishing(true);
     try {
       await flushAll();
+      await proctor.flush(); // last proctoring events go out before the round ends
       await apiFetch('/api/candidate/rounds/CODING/submit', { method: 'POST' });
     } catch {
       // The server enforces the deadline itself, so a refresh always lands on the right screen.
     } finally {
       router.refresh();
     }
-  }, [flushAll, router]);
+  }, [flushAll, proctor, router]);
 
   useEffect(() => {
     if (secondsLeft <= 0) {
@@ -166,7 +169,7 @@ export function CodingWorkspace({ coding }: { coding: CodingView }) {
   function confirmFinish() {
     const unsolved = coding.problems.filter((p) => !(progress[p.id]?.total && progress[p.id].passed === progress[p.id].total)).length;
     const msg = unsolved > 0 ? `${unsolved} problem(s) are not fully solved. Only your best submission for each problem counts. Finish the round anyway?` : 'Finish the round? You cannot change anything afterwards.';
-    if (window.confirm(msg)) void finishRound();
+    if (proctor.confirm(msg)) void finishRound();
   }
 
   const report = reports[activeId] ?? null;
@@ -233,7 +236,7 @@ export function CodingWorkspace({ coding }: { coding: CodingView }) {
                 </option>
               ))}
             </select>
-            <button className="text-xs text-muted-foreground underline" onClick={() => window.confirm('Replace your code with the starting template?') && edit(problem.starter[language])}>
+            <button className="text-xs text-muted-foreground underline" onClick={() => proctor.confirm('Replace your code with the starting template?') && edit(problem.starter[language])}>
               Reset code
             </button>
           </div>

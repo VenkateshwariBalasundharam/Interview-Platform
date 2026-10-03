@@ -5,6 +5,7 @@ import { audit } from '@/lib/audit';
 import { err } from '@/lib/http';
 import { ROUND_LIBRARY, ROUND_TYPES, type RoundType } from '@/lib/pipeline';
 import { isAiGradedRound } from '@/lib/round-engine';
+import { buildCandidatePdf, buildResultsPdf } from '@/lib/results-pdf';
 import {
   buildResultsCsv,
   computeFinalResult,
@@ -267,4 +268,44 @@ export async function exportResultsCsv(jobId?: string, adminId?: string): Promis
   const exportRows: ExportRow[] = rows.map((r) => ({ ...r, job: r.jobTitle }));
   if (adminId) await audit({ actorType: 'ADMIN', actorId: adminId, action: 'RESULTS_EXPORTED', meta: { rows: rows.length, jobScoped: Boolean(jobId) } });
   return buildResultsCsv(exportRows, labels);
+}
+
+/** The results table as a PDF, optionally for one job. Same rows as the CSV, so the two exports always agree. */
+export async function exportResultsPdf(jobId?: string, adminId?: string): Promise<Buffer> {
+  const rows = await listResults(jobId);
+  const labels = Object.fromEntries(ROUND_TYPES.map((t) => [t, ROUND_LIBRARY[t].label]));
+  const exportRows: ExportRow[] = rows.map((r) => ({ ...r, job: r.jobTitle }));
+  let heading = 'All jobs';
+  if (jobId) {
+    const job = await prisma.job.findUnique({ where: { id: jobId }, select: { title: true } });
+    if (!job) throw err.notFound('Job not found', 'JOB_NOT_FOUND');
+    heading = job.title;
+  }
+  if (adminId) await audit({ actorType: 'ADMIN', actorId: adminId, action: 'RESULTS_EXPORTED', meta: { rows: rows.length, jobScoped: Boolean(jobId), format: 'pdf' } });
+  return buildResultsPdf({ heading, rows: exportRows, roundLabels: labels, generatedAt: new Date() });
+}
+
+/** A single candidate's result sheet as a PDF. Contains scores and the decision only: no answers, resume text or DOB. */
+export async function exportCandidateResultPdf(candidateId: string, adminId?: string): Promise<{ pdf: Buffer; candidateCode: string }> {
+  const candidate = await prisma.candidate.findUnique({
+    where: { id: candidateId },
+    select: { candidateCode: true, name: true, email: true, status: true, job: { select: { title: true } } },
+  });
+  if (!candidate) throw err.notFound('Candidate not found', 'CANDIDATE_NOT_FOUND');
+  const [view, proctorEvents] = await Promise.all([getCandidateResult(candidateId), prisma.proctorEvent.count({ where: { candidateId } })]);
+  if (adminId) await audit({ actorType: 'ADMIN', actorId: adminId, action: 'RESULT_PDF_EXPORTED', entity: 'Candidate', entityId: candidateId });
+  const pdf = buildCandidatePdf({
+    candidateCode: candidate.candidateCode,
+    name: candidate.name,
+    email: candidate.email,
+    jobTitle: candidate.job.title,
+    status: candidate.status,
+    result: view.result,
+    finalDecision: view.finalDecision,
+    decidedAt: view.decidedAt,
+    decidedByName: view.decidedByName,
+    proctorEvents,
+    generatedAt: new Date(),
+  });
+  return { pdf, candidateCode: candidate.candidateCode };
 }

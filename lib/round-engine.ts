@@ -264,6 +264,14 @@ export interface RoundInfo {
   humanScored: boolean;
   /** Typed answers in this round are scored by the AI (and may be reviewed by the hiring team). */
   aiGraded: boolean;
+  /** The round's proctoring level is not Off: the candidate sees the full-screen notice and events are recorded. */
+  proctored: boolean;
+  /** Tab switches allowed before the round is submitted automatically. 0 means no limit. */
+  maxTabSwitches: number;
+  /** Pasting is blocked in this round (only ever true when the round is proctored). */
+  blockPaste: boolean;
+  /** Switches already used in a running round, so a refresh does not reset the counter on screen. Only set while a round runs. */
+  tabSwitchesUsed?: number;
 }
 
 export interface RoundResult {

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useProctor } from '@/components/proctoring/ProctorGate';
 import { apiFetch } from '@/lib/api-client';
 import type { CandidateQuestion, ExamView } from '@/lib/round-engine';
 
@@ -21,6 +22,7 @@ const TEXT_SAVE_DELAY_MS = 1200;
 
 export function RoundExam({ roundType, exam }: { roundType: string; exam: ExamView }) {
   const router = useRouter();
+  const proctor = useProctor();
   const [choices, setChoices] = useState<Record<string, number>>(exam.choices);
   const [texts, setTexts] = useState<Record<string, string>>(exam.texts);
   const [secondsLeft, setSecondsLeft] = useState(exam.secondsLeft);
@@ -81,6 +83,7 @@ export function RoundExam({ roundType, exam }: { roundType: string; exam: ExamVi
     setSubmitting(true);
     try {
       await flushAll(); // make sure the last thing typed is saved before the round closes
+      await proctor.flush(); // and the last proctoring events, before the round ends and the server stops taking them
       await apiFetch(`/api/candidate/rounds/${roundType}/submit`, { method: 'POST' });
     } catch {
       // Even if this call fails (e.g. time already expired server-side), the server has its own
@@ -88,7 +91,7 @@ export function RoundExam({ roundType, exam }: { roundType: string; exam: ExamVi
     } finally {
       router.refresh();
     }
-  }, [flushAll, roundType, router]);
+  }, [flushAll, proctor, roundType, router]);
 
   // Countdown, ticking once a second; auto-submits the moment it hits zero.
   useEffect(() => {
@@ -136,7 +139,7 @@ export function RoundExam({ roundType, exam }: { roundType: string; exam: ExamVi
 
   function confirmSubmit() {
     const message = unanswered > 0 ? `You have ${unanswered} unanswered question(s). Submit anyway? You cannot change your answers afterwards.` : 'Submit this round? You cannot change your answers afterwards.';
-    if (window.confirm(message)) void submit();
+    if (proctor.confirm(message)) void submit();
   }
 
   return (

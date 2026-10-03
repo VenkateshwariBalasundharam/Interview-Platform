@@ -147,6 +147,15 @@ export function PipelineEditor({ jobId, initialSteps, locked }: { jobId: string;
                       {PROCTORING_LEVELS.map((p) => <option key={p} value={p}>{PROCTOR_LABEL[p]}</option>)}
                     </Select>
                   </Field>
+                  <Field label="Tab-switch limit (0 = none)">
+                    <Input type="number" min={0} max={20} value={s.maxTabSwitches} disabled={off || s.proctoringLevel === 'OFF'} onChange={(e) => patch(i, { maxTabSwitches: num(e.target.value) })} />
+                  </Field>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-1.5 text-sm">
+                      <input type="checkbox" checked={s.blockPaste} disabled={off || s.proctoringLevel === 'OFF'} onChange={(e) => patch(i, { blockPaste: e.target.checked })} />
+                      Block pasting
+                    </label>
+                  </div>
                   <div className="flex items-end pb-2">
                     <label className="flex items-center gap-1.5 text-sm">
                       <input type="checkbox" checked={s.required} disabled={off} onChange={(e) => patch(i, { required: e.target.checked })} />

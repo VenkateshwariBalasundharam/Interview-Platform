@@ -1,10 +1,13 @@
 import Link from 'next/link';
+import { ChevronDown } from 'lucide-react';
 import { notFound } from 'next/navigation';
 import { CandidateEditButton } from '@/components/CandidateEditButton';
 import { CandidateReviewActions } from '@/components/CandidateReviewActions';
 import { DeleteButton } from '@/components/DeleteButton';
 import { FinalResultCard } from '@/components/FinalResultCard';
 import { FitSummaryCard } from '@/components/FitSummaryCard';
+import { AnswerFeedback, HrRubricHelp } from '@/components/HrRubricBreakdown';
+import { ResetRoundButton } from '@/components/ResetRoundButton';
 import { ProctorTimeline } from '@/components/proctoring/ProctorTimeline';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -77,7 +80,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
 
       {review.attempts.length === 0 && <p className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">This candidate has not started any round.</p>}
 
-      {review.attempts.map((a) => (
+      {review.attempts.map((a, index) => (
         <Card key={a.roundType}>
           <CardHeader>
             <div className="flex flex-wrap items-center gap-2">
@@ -86,8 +89,22 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
               {a.status !== 'GRADED' && <Badge tone="warn">{a.status === 'IN_PROGRESS' ? 'in progress' : 'grading'}</Badge>}
             </div>
             <CardDescription>{attemptSummary(a)}</CardDescription>
+            {index === review.attempts.length - 1 ? (
+              <div className="pt-2">
+                <ResetRoundButton candidateId={review.id} roundType={a.roundType} label={a.label} inProgress={a.status === 'IN_PROGRESS'} />
+              </div>
+            ) : (
+              <p className="pt-1 text-xs text-muted-foreground">To reset this round, reset the later rounds first (latest first).</p>
+            )}
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent>
+            <details className="group">
+              <summary className="flex cursor-pointer list-none items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" aria-hidden />
+                <span className="group-open:hidden">Show answers and scores ({a.answers.length + a.coding.length})</span>
+                <span className="hidden group-open:inline">Hide answers and scores</span>
+              </summary>
+              <div className="mt-3 space-y-3">
             {a.coding.map((c) => (
               <div key={c.position} className="rounded-md border p-3 text-sm">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -143,13 +160,9 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                   )
                 ) : (
                   <>
-                    {row.feedback && (
-                      <div className="mt-2">
-                        <div className="text-xs font-medium text-muted-foreground">AI feedback (not shown to the candidate)</div>
-                        <p>{row.feedback}</p>
-                      </div>
-                    )}
-                    {row.keyPoints.length > 0 && (
+                    {row.feedback && <AnswerFeedback roundType={a.roundType} feedback={row.feedback} />}
+                    {a.roundType === 'HR' && <HrRubricHelp />}
+                    {a.roundType !== 'HR' && row.keyPoints.length > 0 && (
                       <details className="mt-2 text-xs text-muted-foreground">
                         <summary className="cursor-pointer">Rubric and sample answer</summary>
                         <ul className="mt-1 list-disc space-y-0.5 pl-5">
@@ -164,6 +177,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
                 )}
               </div>
             ))}
+          </div>
+            </details>
           </CardContent>
         </Card>
       ))}

@@ -5,6 +5,9 @@ import { z } from 'zod';
 export const ROUND_TYPES = ['ASSESSMENT', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN', 'SCENARIO', 'HR', 'MANAGER'] as const;
 export const DIFFICULTIES = ['EASY', 'MEDIUM', 'HARD'] as const;
 export const CUTOFF_MODES = ['DISQUALIFY', 'FLAG_FOR_REVIEW'] as const;
+/** New jobs end a proctored round at this many tab switches. Admins can change or clear it per round. */
+export const DEFAULT_MAX_TAB_SWITCHES = 3;
+
 export const PROCTORING_LEVELS = ['OFF', 'PRESENCE', 'IDENTITY'] as const;
 export const RESULT_MODES = ['AUTO_SUGGEST', 'ALWAYS_HUMAN_REVIEW'] as const;
 export const RETAKE_POLICIES = ['NONE', 'ADMIN_GRANTED'] as const;
@@ -43,6 +46,10 @@ export const pipelineStepSchema = z.object({
   difficulty: z.enum(DIFFICULTIES),
   cutoffMode: z.enum(CUTOFF_MODES),
   proctoringLevel: z.enum(PROCTORING_LEVELS),
+  /** Tab switches allowed before the round ends automatically. 0 = no limit. */
+  maxTabSwitches: z.number().int().min(0).max(20).default(0),
+  /** Block pasting into the exam. Attempts are still recorded for the admin. */
+  blockPaste: z.boolean().default(false),
   required: z.boolean(),
   humanScored: z.boolean(),
 });
@@ -158,6 +165,8 @@ export function defaultStep(roundType: RoundType, position: number): PipelineSte
     difficulty: 'MEDIUM',
     cutoffMode: roundType === 'MANAGER' ? 'FLAG_FOR_REVIEW' : 'DISQUALIFY',
     proctoringLevel: roundType === 'MANAGER' ? 'OFF' : 'PRESENCE',
+    maxTabSwitches: roundType === 'MANAGER' ? 0 : DEFAULT_MAX_TAB_SWITCHES,
+    blockPaste: roundType !== 'MANAGER',
     required: true,
     humanScored: ROUND_LIBRARY[roundType].humanScored,
   };

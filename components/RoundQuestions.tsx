@@ -29,7 +29,8 @@ const STATUS_BADGE: Record<SetStatus, { label: string; tone: 'neutral' | 'warn' 
 
 const cap = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
 
-export function RoundQuestions({ jobId, round, jobStarted }: { jobId: string; round: RoundPanelData; jobStarted: boolean }) {
+/** With `candidateId` the panel edits that candidate's own set; `jobStarted` then means that candidate has started the round. */
+export function RoundQuestions({ jobId, round, jobStarted, candidateId }: { jobId: string; round: RoundPanelData; jobStarted: boolean; candidateId?: string }) {
   const router = useRouter();
   const { set } = round;
   const kinds = ROUND_KINDS[round.roundType];
@@ -62,7 +63,10 @@ export function RoundQuestions({ jobId, round, jobStarted }: { jobId: string; ro
     if (set && !window.confirm('Replace this draft with newly generated questions? Any edits you made to it will be lost.')) return;
     setEditing(null);
     const res = await run('generate', () =>
-      apiFetch<{ requested: number; created: number }>(`/api/admin/jobs/${jobId}/questions/generate`, { method: 'POST', json: { roundType: round.roundType } }),
+      apiFetch<{ requested: number; created: number }>(
+        candidateId ? `/api/admin/candidates/${candidateId}/questions` : `/api/admin/jobs/${jobId}/questions/generate`,
+        { method: 'POST', json: { roundType: round.roundType } },
+      ),
     );
     if (res && res.created < res.requested) {
       setNotice(`Only ${res.created} of ${res.requested} questions could be generated. Add the rest manually or generate again.`);
@@ -128,7 +132,11 @@ export function RoundQuestions({ jobId, round, jobStarted }: { jobId: string; ro
       <CardContent className="space-y-3">
         {error && <Alert tone="error">{error}</Alert>}
         {notice && <Alert tone="warn">{notice}</Alert>}
-        {!set && <p className="text-sm text-muted-foreground">Generate a draft from the job description and required skills, then review it before approving.</p>}
+        {!set && (
+          <p className="text-sm text-muted-foreground">
+            {candidateId ? "Generate a draft from this candidate's parsed resume and the job description, then review it before approving." : 'Generate a draft from the job description and required skills, then review it before approving.'}
+          </p>
+        )}
         {set?.status === 'DRAFT' && shortBy > 0 && count > 0 && (
           <Alert tone="warn">This round asks for {round.questionCount} questions. Add {shortBy} more or regenerate before approving.</Alert>
         )}
@@ -194,7 +202,11 @@ export function RoundQuestions({ jobId, round, jobStarted }: { jobId: string; ro
           )
         )}
         {set?.status === 'LOCKED' && <p className="text-sm text-muted-foreground">Locked. This set can no longer be edited.</p>}
-        {jobStarted && <p className="text-sm text-muted-foreground">Candidates have started this job, so its questions can no longer be changed. Clone the job to make changes.</p>}
+        {jobStarted && (
+          <p className="text-sm text-muted-foreground">
+            {candidateId ? 'This candidate has started this round, so their questions can no longer be changed.' : 'Candidates have started this job, so its questions can no longer be changed. Clone the job to make changes.'}
+          </p>
+        )}
       </CardContent>
     </Card>
   );

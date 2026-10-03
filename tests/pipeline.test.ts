@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  defaultStep, getPreset, pipelineSchema, validatePipelineSteps, withSequentialPositions,
+  defaultStep, getPreset, pipelineSchema, pipelineStepSchema, validatePipelineSteps, withSequentialPositions,
   TIERS, type PipelineStep,
 } from '@/lib/pipeline';
 
@@ -134,5 +134,13 @@ describe('helpers', () => {
     expect(defaultStep('CODING', 1).cutoffPercent).toBe(50);
     expect(defaultStep('SYSTEM_DESIGN', 1).cutoffPercent).toBe(55);
     expect(defaultStep('MANAGER', 1)).toMatchObject({ humanScored: true, proctoringLevel: 'OFF' });
+  });
+});
+
+describe('paste blocking default', () => {
+  it('is on for every round except Manager, and the schema defaults it to off', () => {
+    const steps = getPreset('SENIOR').steps;
+    for (const s of steps) expect(s.blockPaste).toBe(s.roundType !== 'MANAGER');
+    expect(pipelineStepSchema.parse({ ...steps[0], blockPaste: undefined }).blockPaste).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { CodingWorkspace } from '@/components/coding/CodingWorkspace';
 import { BackButton } from '@/components/BackButton';
 import { GradingPending } from '@/components/GradingPending';
+import { ProctorGate } from '@/components/proctoring/ProctorGate';
 import { RoundExam } from '@/components/RoundExam';
 import { RoundIntro } from '@/components/RoundIntro';
 import { RoundResultView } from '@/components/RoundResultView';
@@ -27,7 +28,13 @@ export default async function RoundPage({ params }: { params: Promise<{ type: st
   }
 
   // The coding workspace fills the whole window, like other coding platforms.
-  if (state.phase === 'coding') return <CodingWorkspace coding={state.coding} />;
+  if (state.phase === 'coding') {
+    return (
+      <ProctorGate enabled={state.coding.round.proctored} roundType={type} maxTabSwitches={state.coding.round.maxTabSwitches} tabSwitchesUsed={state.coding.round.tabSwitchesUsed ?? 0} blockPaste={state.coding.round.blockPaste}>
+        <CodingWorkspace coding={state.coding} />
+      </ProctorGate>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8">
@@ -38,7 +45,11 @@ export default async function RoundPage({ params }: { params: Promise<{ type: st
       )}
 
       {state.phase === 'intro' && <RoundIntro round={state.round} canStart={state.canStart} blockedReason={state.blockedReason} />}
-      {state.phase === 'exam' && <RoundExam roundType={type} exam={state.exam} />}
+      {state.phase === 'exam' && (
+        <ProctorGate enabled={state.exam.round.proctored} roundType={type} maxTabSwitches={state.exam.round.maxTabSwitches} tabSwitchesUsed={state.exam.round.tabSwitchesUsed ?? 0} blockPaste={state.exam.round.blockPaste}>
+          <RoundExam roundType={type} exam={state.exam} />
+        </ProctorGate>
+      )}
       {state.phase === 'grading' && <GradingPending round={state.round} />}
       {state.phase === 'result' && (
         <RoundResultView round={state.round} result={state.result} nextHref={state.nextRoundType ? `/round/${state.nextRoundType}` : null}>

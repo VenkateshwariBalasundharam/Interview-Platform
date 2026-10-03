@@ -139,6 +139,10 @@ model RoundConfig {
   difficulty      Difficulty      @default(MEDIUM)
   cutoffMode      CutoffMode      @default(DISQUALIFY)
   proctoringLevel ProctoringLevel @default(OFF)
+  /// Tab switches allowed before the round is submitted automatically. 0 means no limit.
+  maxTabSwitches  Int             @default(0)
+  /// Pasting into the exam is blocked (and the attempt is logged). Only applies when proctoring is on.
+  blockPaste      Boolean         @default(false)
   required        Boolean         @default(true)
   humanScored     Boolean         @default(false)
 
@@ -178,6 +182,7 @@ model Candidate {
   humanScores   HumanScore[]
   result        Result?
   fitSummary    FitSummary?
+  questionSets  QuestionSet[]
 
   @@unique([jobId, email])
   @@index([jobId])
@@ -191,14 +196,16 @@ model QuestionSet {
   roundType   RoundType
   version     Int               @default(1)
   status      QuestionSetStatus @default(DRAFT)
-  candidateId String? // set for per-candidate sets (TECHNICAL, HR)
+  candidateId String? // set for per-candidate sets (TECHNICAL, HR); null for the job-wide set
   lockedAt    DateTime?
   createdAt   DateTime          @default(now())
 
   job       Job        @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  candidate Candidate? @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   questions Question[]
 
   @@index([jobId, roundType])
+  @@index([candidateId, roundType])
 }
 
 model Question {

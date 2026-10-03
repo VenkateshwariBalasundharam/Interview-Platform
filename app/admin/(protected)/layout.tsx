@@ -1,3 +1,4 @@
+import { ADMIN_LOGIN_PATH } from '@/lib/admin-paths';
 import Link from 'next/link';
 import { BackButton } from '@/components/BackButton';
 import { LogoutButton } from '@/components/LogoutButton';
@@ -20,7 +21,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           </nav>
           <div className="ml-auto flex items-center gap-3 text-sm text-muted-foreground">
             <span>{admin.name}</span>
-            <LogoutButton endpoint="/api/admin/auth/logout" redirectTo="/admin/login" />
+            <LogoutButton endpoint="/api/admin/auth/logout" redirectTo={ADMIN_LOGIN_PATH} />
           </div>
         </div>
       </header>

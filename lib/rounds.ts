@@ -9,11 +9,13 @@ import { buildCodingView, codingTotals, pickProblemIdsForRound } from '@/lib/cod
 import { prisma } from '@/lib/db';
 import { getEnv } from '@/lib/env';
 import { MANUAL_REVIEW_MARK, gradeOpenAnswers, needsHumanReview, type GradeInput } from '@/lib/grading-ai';
+import { gradeHrAnswers } from '@/lib/hr-rubric';
 import { AppError, err } from '@/lib/http';
+import { chooseSet, isPersonalisedRound } from '@/lib/personalisation';
 import { ROUND_LIBRARY, ROUND_TYPES, type RoundType } from '@/lib/pipeline';
 import { consumeRateLimit } from '@/lib/ratelimit';
 import { refreshResultSafely } from '@/lib/results';
-import { ROUND_KINDS, isGeneratedRound, rubricSchema } from '@/lib/questions';
+import { ROUND_KINDS, isGeneratedRound, rubricSchema, type SetStatus } from '@/lib/questions';
 import {
   SUBMIT_GRACE_SECONDS,
   blockedReason,
@@ -56,7 +58,7 @@ export function parseRoundType(value: string): RoundType {
 
 type RoundRow = Awaited<ReturnType<typeof prisma.roundConfig.findMany>>[number];
 
-function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinutes' | 'questionCount' | 'humanScored' | 'proctoringLevel'>): RoundInfo {
+function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinutes' | 'questionCount' | 'humanScored' | 'proctoringLevel' | 'maxTabSwitches' | 'blockPaste'>): RoundInfo {
   return {
     roundType: r.roundType,
     label: ROUND_LIBRARY[r.roundType].label,
@@ -66,6 +68,8 @@ function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinut
     humanScored: r.humanScored,
     aiGraded: isAiGradedRound(r.roundType),
     proctored: r.proctoringLevel !== 'OFF',
+    maxTabSwitches: r.proctoringLevel !== 'OFF' ? r.maxTabSwitches : 0,
+    blockPaste: r.proctoringLevel !== 'OFF' && r.blockPaste,
   };
 }
 
@@ -109,6 +113,13 @@ async function loadPipeline(candidate: Pick<CandidateSession, 'id' | 'jobId'>) {
     candidateStatus: current.status,
   });
   return { rounds, attempts, status: current.status as CandidateStatusName, states };
+}
+
+/** Adds how many tab switches a running round has used. Skipped when the round has no limit. */
+async function withTabSwitchCount(attemptId: string, info: RoundInfo): Promise<RoundInfo> {
+  if (info.maxTabSwitches <= 0) return info;
+  const used = await prisma.proctorEvent.count({ where: { attemptId, type: 'TAB_SWITCH' } });
+  return { ...info, tabSwitchesUsed: used };
 }
 
 // ───────────────────────── Dashboard ─────────────────────────
@@ -170,8 +181,12 @@ export async function getRoundPage(candidate: Pick<CandidateSession, 'id' | 'job
   const attempt = ctx.attempts.find((a) => a.roundType === roundType);
 
   if (state === 'IN_PROGRESS' && attempt) {
-    if (roundType === 'CODING') return { phase: 'coding', coding: await buildCodingView(attempt.id, toRoundInfo(round), attempt.deadlineAt, now) };
-    return { phase: 'exam', exam: await buildExamView(attempt, round, now) };
+    if (roundType === 'CODING') {
+      const info = await withTabSwitchCount(attempt.id, toRoundInfo(round));
+      return { phase: 'coding', coding: await buildCodingView(attempt.id, info, attempt.deadlineAt, now) };
+    }
+    const exam = await buildExamView(attempt, round, now);
+    return { phase: 'exam', exam: { ...exam, round: await withTabSwitchCount(attempt.id, exam.round) } };
   }
   if (state === 'GRADING') return { phase: 'grading', round: toRoundInfo(round) };
   if (state === 'DONE' && attempt) {
@@ -225,12 +240,27 @@ export async function startRound(candidate: Pick<CandidateSession, 'id' | 'jobId
     return getRoundPage(candidate, roundType, now);
   }
 
-  // The same questions for every candidate: the first N of the approved set, in position order.
-  const set = await prisma.questionSet.findFirst({
-    where: { jobId: candidate.jobId, roundType, candidateId: null, status: { in: ['APPROVED', 'LOCKED'] } },
-    orderBy: { createdAt: 'desc' },
-    select: { questions: { orderBy: { position: 'asc' }, take: round.questionCount, select: { id: true, kind: true } } },
-  });
+  // The first N questions of the approved set, in position order. A candidate with their own resume-personalised set
+  // (Technical and HR) gets that one; everyone else gets the job-wide set, so those candidates share the same questions.
+  const questionSelect = { orderBy: { position: 'asc' as const }, take: round.questionCount, select: { id: true, kind: true } };
+  const own = isPersonalisedRound(roundType)
+    ? await prisma.questionSet.findFirst({
+        where: { jobId: candidate.jobId, roundType, candidateId: candidate.id },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true, questions: questionSelect },
+      })
+    : null;
+  const choice = chooseSet(own as { status: SetStatus } | null);
+  // A personalised draft the admin has not approved yet: wait for it rather than quietly handing out the shared questions.
+  if (choice === 'pending') throw err.conflict('This round is not ready yet. Please contact the hiring team.', 'ROUND_NOT_READY');
+  const set =
+    choice === 'own'
+      ? own
+      : await prisma.questionSet.findFirst({
+          where: { jobId: candidate.jobId, roundType, candidateId: null, status: { in: ['APPROVED', 'LOCKED'] } },
+          orderBy: { createdAt: 'desc' },
+          select: { questions: questionSelect },
+        });
   const allowedKinds: readonly string[] = isGeneratedRound(roundType) ? ROUND_KINDS[roundType] : [];
   if (!set || set.questions.length < round.questionCount || !set.questions.every((q) => allowedKinds.includes(q.kind))) {
     throw err.conflict('This round is not ready yet. Please contact the hiring team.', 'ROUND_NOT_READY');
@@ -472,9 +502,11 @@ export async function gradePendingAnswers(attemptId: string): Promise<GradingSta
   if (gradingInFlight.has(attemptId)) return 'busy';
   gradingInFlight.add(attemptId);
   try {
-    const attempt = await prisma.attempt.findUnique({ where: { id: attemptId }, select: { status: true } });
+    const attempt = await prisma.attempt.findUnique({ where: { id: attemptId }, select: { status: true, roundType: true } });
     if (!attempt) throw err.notFound('Round not found', 'ATTEMPT_NOT_FOUND');
     if (attempt.status === 'GRADED') return 'done';
+    // HR answers are rated on clarity, ownership, depth and communication instead of per-question key points.
+    const isHr = attempt.roundType === 'HR';
     if (attempt.status === 'IN_PROGRESS') throw err.conflict('This round has not been submitted yet.', 'ROUND_NOT_SUBMITTED');
 
     const pending = await prisma.answer.findMany({
@@ -485,7 +517,7 @@ export async function gradePendingAnswers(attemptId: string): Promise<GradingSta
     const items: GradeInput[] = [];
     for (const p of pending) {
       const rubric = rubricSchema.safeParse(p.question.rubric);
-      if (!rubric.success) {
+      if (!rubric.success && !isHr) {
         // Approval checks rubrics, so this should not happen; if it does, a human decides rather than the round hanging.
         await prisma.answer.updateMany({
           where: { id: p.id, score: null },
@@ -497,13 +529,14 @@ export async function gradePendingAnswers(attemptId: string): Promise<GradingSta
         id: p.id,
         points: p.question.points,
         prompt: p.question.prompt,
-        keyPoints: rubric.data.keyPoints,
-        sampleAnswer: rubric.data.sampleAnswer,
+        keyPoints: rubric.success ? rubric.data.keyPoints : [],
+        sampleAnswer: rubric.success ? rubric.data.sampleAnswer : '',
         answer: readText(p.response),
       });
     }
 
-    const { graded, failed, firstError } = items.length > 0 ? await gradeOpenAnswers(items) : { graded: new Map(), failed: [], firstError: undefined };
+    const grade = isHr ? gradeHrAnswers : gradeOpenAnswers;
+    const { graded, failed, firstError } = items.length > 0 ? await grade(items) : { graded: new Map(), failed: [], firstError: undefined };
     for (const [id, grade] of graded) {
       await prisma.answer.updateMany({ where: { id, score: null }, data: { score: grade.score, feedback: grade.feedback } });
     }

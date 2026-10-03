@@ -70,6 +70,8 @@ function toRoundData(steps: PipelineStep[]) {
     difficulty: s.difficulty,
     cutoffMode: s.cutoffMode,
     proctoringLevel: s.proctoringLevel,
+    maxTabSwitches: s.maxTabSwitches,
+    blockPaste: s.blockPaste,
     required: s.required,
     humanScored: s.humanScored,
   }));
@@ -154,6 +156,8 @@ export async function cloneJob(id: string, adminId: string) {
           difficulty: r.difficulty,
           cutoffMode: r.cutoffMode,
           proctoringLevel: r.proctoringLevel,
+          maxTabSwitches: r.maxTabSwitches,
+          blockPaste: r.blockPaste,
           required: r.required,
           humanScored: r.humanScored,
         })),

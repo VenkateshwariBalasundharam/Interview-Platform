@@ -5,7 +5,7 @@ import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/db';
 import { err } from '@/lib/http';
 import { jobHasStartedAttempts } from '@/lib/jobs';
-import { ROUND_LIBRARY, type Difficulty } from '@/lib/pipeline';
+import { ROUND_LIBRARY, type Difficulty, type RoundType } from '@/lib/pipeline';
 import { generateQuestions } from '@/lib/question-generation';
 import {
   MAX_SET_SIZE,
@@ -24,7 +24,7 @@ import {
 
 const optionsSchema = z.array(z.string());
 
-function toAdminQuestion(q: {
+export function toAdminQuestion(q: {
   id: string;
   kind: QuestionKind;
   position: number;
@@ -50,7 +50,7 @@ function toAdminQuestion(q: {
   };
 }
 
-function toRow(q: NewQuestion, position: number) {
+export function toRow(q: NewQuestion, position: number) {
   return q.kind === 'MCQ'
     ? { kind: q.kind, position, prompt: q.prompt, options: q.options, correctIndex: q.correctIndex, points: q.points, difficulty: q.difficulty }
     : { kind: q.kind, position, prompt: q.prompt, rubric: q.rubric as Prisma.InputJsonValue, points: q.points, difficulty: q.difficulty };
@@ -65,7 +65,19 @@ async function assertJobNotStarted(jobId: string) {
   }
 }
 
-function assertDraft(status: SetStatus) {
+/**
+ * A job-wide set is frozen once anyone has started the job. A candidate's own set is frozen only once that
+ * candidate has started that round, so a late candidate's questions can still be reviewed while others are mid-interview.
+ */
+export async function assertSetEditable(set: { jobId: string; roundType: RoundType; candidateId: string | null }) {
+  if (!set.candidateId) return assertJobNotStarted(set.jobId);
+  const started = await prisma.attempt.count({ where: { candidateId: set.candidateId, roundType: set.roundType } });
+  if (started > 0) {
+    throw err.conflict('This candidate has already started this round, so their questions can no longer be changed.', 'QUESTIONS_LOCKED');
+  }
+}
+
+export function assertDraft(status: SetStatus) {
   if (status !== 'DRAFT') {
     throw err.conflict(
       status === 'LOCKED' ? 'This question set is locked and cannot be changed.' : 'Reopen the question set to make changes.',
@@ -177,7 +189,7 @@ export async function generateSet(jobId: string, roundType: GeneratedRound, admi
 // ───────────────────────── Editing ─────────────────────────
 
 async function loadQuestion(id: string) {
-  const question = await prisma.question.findUnique({ where: { id }, include: { set: { select: { id: true, jobId: true, status: true } } } });
+  const question = await prisma.question.findUnique({ where: { id }, include: { set: { select: { id: true, jobId: true, status: true, roundType: true, candidateId: true } } } });
   if (!question) throw err.notFound('Question not found', 'QUESTION_NOT_FOUND');
   return question;
 }
@@ -185,7 +197,7 @@ async function loadQuestion(id: string) {
 export async function updateQuestion(id: string, body: unknown, adminId: string) {
   const question = await loadQuestion(id);
   assertDraft(question.set.status);
-  await assertJobNotStarted(question.set.jobId);
+  await assertSetEditable(question.set);
 
   const fields = fieldsSchemaFor(question.kind).parse(body);
   const data =
@@ -199,7 +211,7 @@ export async function updateQuestion(id: string, body: unknown, adminId: string)
 export async function deleteQuestion(id: string, adminId: string) {
   const question = await loadQuestion(id);
   assertDraft(question.set.status);
-  await assertJobNotStarted(question.set.jobId);
+  await assertSetEditable(question.set);
 
   await prisma.question.delete({ where: { id } });
   const remaining = await prisma.question.findMany({ where: { setId: question.set.id }, orderBy: { position: 'asc' }, select: { id: true } });
@@ -211,7 +223,7 @@ export async function addQuestion(setId: string, kind: QuestionKind, body: unkno
   const set = await prisma.questionSet.findUnique({ where: { id: setId }, include: { _count: { select: { questions: true } } } });
   if (!set) throw err.notFound('Question set not found', 'SET_NOT_FOUND');
   assertDraft(set.status);
-  await assertJobNotStarted(set.jobId);
+  await assertSetEditable(set);
 
   if (!isGeneratedRound(set.roundType) || !(ROUND_KINDS[set.roundType] as readonly string[]).includes(kind)) {
     throw err.badRequest(`A ${ROUND_LIBRARY[set.roundType].label} round cannot contain ${kind} questions`, 'KIND_NOT_ALLOWED');
@@ -242,8 +254,8 @@ export async function transitionSet(setId: string, action: SetAction, adminId: s
   if (set.status !== t.from) {
     throw err.conflict(`Only a ${t.from.toLowerCase()} set can be ${action === 'approve' ? 'approved' : action === 'reopen' ? 'reopened' : 'locked'}.`, 'INVALID_TRANSITION');
   }
-  // Locking is always allowed (it only freezes things further); every other change needs a job nobody has started.
-  if (action !== 'lock') await assertJobNotStarted(set.jobId);
+  // Locking is always allowed (it only freezes things further); every other change needs a job (or, for a candidate's own set, a round) nobody has started.
+  if (action !== 'lock') await assertSetEditable(set);
 
   if (action === 'approve') {
     const round = await prisma.roundConfig.findFirst({ where: { jobId: set.jobId, roundType: set.roundType }, select: { questionCount: true } });
