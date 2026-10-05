@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { FaceSetup } from '@/components/proctoring/FaceMonitor';
 import { apiFetch } from '@/lib/api-client';
 import type { RoundInfo } from '@/lib/round-engine';
 
@@ -11,6 +12,10 @@ export function RoundIntro({ round, canStart, blockedReason }: { round: RoundInf
   const router = useRouter();
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Camera consent and face registration happen here, before the timer starts, so they never use up exam time.
+  const needsCamera = round.faceLevel !== 'OFF';
+  const [cameraOk, setCameraOk] = useState(!needsCamera);
+  const onCameraReady = useCallback(() => setCameraOk(true), []);
 
   async function start() {
     setStarting(true);
@@ -50,7 +55,15 @@ export function RoundIntro({ round, canStart, blockedReason }: { round: RoundInf
                 Multiple-choice answers are marked automatically. Typed answers are scored by an AI against a rubric, and the hiring team may review the result.
               </p>
             )}
-            <Button onClick={start} disabled={starting}>
+            {needsCamera && (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  This round uses your camera.{round.faceLevel === 'IDENTITY' ? ' You will register your face once before you start.' : ''} Finish the camera check below, then start the round.
+                </p>
+                <FaceSetup level={round.faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'} mode="preflight" onReady={onCameraReady} />
+              </div>
+            )}
+            <Button onClick={start} disabled={starting || !cameraOk}>
               {starting ? 'Starting…' : 'Start round'}
             </Button>
           </>

@@ -27,6 +27,8 @@ const envSchema = z.object({
   RETENTION_DAYS: z.string().optional(),
   // Distance above which two faces count as different people (0.3 to 0.9, default 0.6).
   FACE_MATCH_THRESHOLD: z.string().optional(),
+  // Background sweep: the scheduler calls /api/cron/sweep with `Authorization: Bearer <CRON_SECRET>` (16+ characters). Without it the route stays closed.
+  CRON_SECRET: z.string().optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
 

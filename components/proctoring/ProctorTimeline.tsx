@@ -1,5 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { SnapshotViewer } from '@/components/proctoring/SnapshotViewer';
 import { formatDuration, type EventTone } from '@/lib/proctoring-core';
 import type { ProctorRoundReport } from '@/lib/proctoring';
 
@@ -55,6 +56,14 @@ export function ProctorTimeline({ reports }: { reports: ProctorRoundReport[] }) 
                     <Stat label="Characters pasted" value={counts.pastedChars.toLocaleString('en-US')} />
                     <Stat label="Full-screen exits" value={counts.fullscreenRefused ? `${counts.fullscreenExits} (refused once)` : String(counts.fullscreenExits)} />
                   </div>
+                  {report.level !== 'OFF' && (
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      <Stat label="No face seen" value={String(counts.noFace)} />
+                      <Stat label="Several faces" value={String(counts.multipleFaces)} />
+                      <Stat label="Head turned away" value={String(counts.lookingAway)} />
+                      {report.level === 'IDENTITY' && <Stat label="Identity mismatches" value={String(counts.identityMismatches)} />}
+                    </div>
+                  )}
 
                   <ol className="space-y-1.5 text-sm">
                     {report.events.map((event) => (
@@ -63,7 +72,10 @@ export function ProctorTimeline({ reports }: { reports: ProctorRoundReport[] }) 
                           {event.offsetLabel}
                         </span>
                         <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${DOT[event.tone]}`} aria-hidden />
-                        <span className="leading-5">{event.text}</span>
+                        <span className="leading-5">
+                          {event.text}
+                          {event.hasSnapshot && <SnapshotViewer eventId={event.id} />}
+                        </span>
                       </li>
                     ))}
                   </ol>

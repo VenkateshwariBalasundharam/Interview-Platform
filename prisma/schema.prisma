@@ -434,6 +434,22 @@ model AuditLog {
   @@index([createdAt])
 }
 
+/// One row per background sweep (heartbeat). The admin dashboard reads the latest to warn when nothing has run. Pruned after 7 days.
+model SweepRun {
+  id           String   @id @default(cuid())
+  trigger      String
+  startedAt    DateTime
+  finishedAt   DateTime
+  finalized    Int      @default(0)
+  graded       Int      @default(0)
+  stillPending Int      @default(0)
+  held         Int      @default(0)
+  errors       Int      @default(0)
+  stoppedEarly Boolean  @default(false)
+
+  @@index([startedAt])
+}
+
 model RateLimit {
   key         String   @id
   count       Int

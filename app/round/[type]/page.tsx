@@ -30,7 +30,7 @@ export default async function RoundPage({ params }: { params: Promise<{ type: st
   // The coding workspace fills the whole window, like other coding platforms.
   if (state.phase === 'coding') {
     return (
-      <ProctorGate enabled={state.coding.round.proctored} roundType={type} maxTabSwitches={state.coding.round.maxTabSwitches} tabSwitchesUsed={state.coding.round.tabSwitchesUsed ?? 0} blockPaste={state.coding.round.blockPaste}>
+      <ProctorGate enabled={state.coding.round.proctored} faceLevel={state.coding.round.faceLevel} roundType={type} maxTabSwitches={state.coding.round.maxTabSwitches} tabSwitchesUsed={state.coding.round.tabSwitchesUsed ?? 0} blockPaste={state.coding.round.blockPaste}>
         <CodingWorkspace coding={state.coding} />
       </ProctorGate>
     );
@@ -46,7 +46,7 @@ export default async function RoundPage({ params }: { params: Promise<{ type: st
 
       {state.phase === 'intro' && <RoundIntro round={state.round} canStart={state.canStart} blockedReason={state.blockedReason} />}
       {state.phase === 'exam' && (
-        <ProctorGate enabled={state.exam.round.proctored} roundType={type} maxTabSwitches={state.exam.round.maxTabSwitches} tabSwitchesUsed={state.exam.round.tabSwitchesUsed ?? 0} blockPaste={state.exam.round.blockPaste}>
+        <ProctorGate enabled={state.exam.round.proctored} faceLevel={state.exam.round.faceLevel} roundType={type} maxTabSwitches={state.exam.round.maxTabSwitches} tabSwitchesUsed={state.exam.round.tabSwitchesUsed ?? 0} blockPaste={state.exam.round.blockPaste}>
           <RoundExam roundType={type} exam={state.exam} />
         </ProctorGate>
       )}

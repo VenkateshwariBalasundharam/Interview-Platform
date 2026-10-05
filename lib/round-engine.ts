@@ -310,6 +310,8 @@ export interface RoundInfo {
   aiGraded: boolean;
   /** The round's proctoring level is not Off: the candidate sees the full-screen notice and events are recorded. */
   proctored: boolean;
+  /** Camera checks for this round: Off, Presence (faces seen) or Identity (also matched to the registered face). */
+  faceLevel: 'OFF' | 'PRESENCE' | 'IDENTITY';
   /** Tab switches allowed before the round is submitted automatically. 0 means no limit. */
   maxTabSwitches: number;
   /** Pasting is blocked in this round (only ever true when the round is proctored). */

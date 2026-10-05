@@ -200,3 +200,18 @@ export async function purgeExpired(now = new Date()): Promise<{ snapshots: numbe
   if (old.length > 0 || refs.count > 0) await audit({ actorType: 'SYSTEM', action: 'RETENTION_PURGE', entity: 'Proctoring', entityId: 'purge', meta: { snapshots: old.length, faceReferences: refs.count } });
   return { snapshots: old.length, faceReferences: refs.count };
 }
+
+export interface FaceStatus {
+  /** FACE_ENCRYPTION_KEY is set, so a face can be registered and compared. Without it only presence checks work. */
+  configured: boolean;
+  consented: boolean;
+  enrolled: boolean;
+  retentionDays: number;
+}
+
+/** What the candidate's browser needs to know before it asks for the camera: what is already agreed and registered. */
+export async function getFaceStatus(candidateId: string): Promise<FaceStatus> {
+  const [consented, enrolled] = await Promise.all([hasFaceConsent(candidateId), hasFaceReference(candidateId)]);
+  const env = getEnv();
+  return { configured: parseFaceKey(env.FACE_ENCRYPTION_KEY) !== null, consented, enrolled, retentionDays: retentionDays(env.RETENTION_DAYS) };
+}

@@ -844,3 +844,102 @@ Candidate login and Admin login (`/login`, `/staff-login`, `/admin/login`) now s
 4. **To see what is slow:** add `PRISMA_QUERY_LOG=1` to `.env`, restart, and watch the terminal: each query prints its time in ms. Remove it afterwards.
 
 Changes made for speed: the admin session is looked up once per page instead of twice (`cache()` in `lib/auth.ts`), and the top-bar bell now runs two cheap counts in parallel with the session check instead of loading every completed candidate.
+
+
+## Browser-side face checks (camera, consent, registration, live monitor, admin photos)
+
+Finishes the face feature whose server half was built earlier. Library: `@vladmandic/face-api` (TinyFaceDetector + 68-point landmarks + face recognition). The model files are served from `public/models`, so no face data and no model download goes through a third party.
+
+### What the candidate sees
+- **Before the round starts** (round intro): a *Camera check* card. Consent text (what is read, what is kept, how long), a checkbox, then the camera. For **Identity** rounds the candidate registers their face once (5 readings that must agree, the average is stored). The **Start round** button stays disabled until this is done, so setup never uses exam time.
+- **When the exam opens**: the camera starts again automatically (consent and registration are already on file), then the usual full-screen notice appears. A small self-view with a *Camera on* badge sits bottom-left.
+- **During the round**: every 3 s the browser reports how many faces it saw, whether the head is turned away and, at Identity level, a face descriptor. If the tab is hidden, no reading is sent (the tab switch is already recorded). If the camera stops, a banner offers **Reconnect camera**, and the server sees "no face" until it is back.
+- A photo is taken only when the server asks for one (several faces, or an identity mismatch), shrunk to under 140 KB, and sent for that one event.
+
+### What the admin sees
+- Candidate page, Proctoring card: counts for *No face seen*, *Several faces*, *Head turned away* and (Identity rounds) *Identity mismatches*, plus a **View photo** button on events that have one. The image is requested only when the button is pressed, so each view is audited only when someone looks. Photos disappear after `RETENTION_DAYS`.
+
+### Setup
+1. `npm install` (adds `@vladmandic/face-api`).
+2. `FACE_ENCRYPTION_KEY` in `.env` (see *Face checks (server side)*). Without it Identity rounds fall back to Presence checks and say nothing is registered.
+3. Run `npm run purge` daily so expired photos and face references are removed.
+4. Use `https` in production (browsers only allow the camera on https or localhost).
+
+### API added
+`GET /api/candidate/face/status` -> `{ configured, consented, enrolled, retentionDays }`. The other face routes already existed.
+
+### Files
+New: `lib/face-client-core.ts` (pure rules, tested), `lib/face-client.ts` (camera and detector), `components/proctoring/FaceMonitor.tsx` (`FaceSetup`, `FaceMonitor`), `components/proctoring/SnapshotViewer.tsx`, `app/api/candidate/face/status/route.ts`, `tests/face-client.test.ts`, `public/models/*`.
+Changed: `components/proctoring/ProctorGate.tsx`, `components/proctoring/ProctorTimeline.tsx`, `components/RoundIntro.tsx`, `app/round/[type]/page.tsx`, `lib/rounds.ts`, `lib/round-engine.ts` (`faceLevel` on the round), `lib/face.ts` (`getFaceStatus`), `next.config.mjs`.
+
+### Manual checklist
+- [ ] Set a round to **Presence**. As a candidate open it: the Camera check card shows consent. Start stays disabled until you agree and the camera is allowed.
+- [ ] Deny the camera in the browser: a clear message and **Try again**. Allow it: the card turns green and Start works.
+- [ ] Start the round: the camera restarts by itself, then full-screen. The self-view shows *Camera on*.
+- [ ] Cover the lens for ~20 s: admin Proctoring shows *No face seen* (once per 15 s at most).
+- [ ] Hold a second person or a photo of a face in view: *Several faces*, with a **View photo** button. Open it; the audit log gets `SNAPSHOT_VIEWED`.
+- [ ] Turn your head clearly to one side: *Head turned away*.
+- [ ] Set a round to **Identity**: the intro asks you to register. Register, finish, and let someone else sit down mid-round: *Identity mismatch* with a photo.
+- [ ] Unplug the webcam mid-round: the banner appears; plug in, **Reconnect camera**, the banner goes away.
+- [ ] Refresh mid-round: camera comes back without registering again.
+- [ ] Round set to **Off**: no camera step anywhere.
+
+### Assumptions and limits
+- The camera is required for Presence and Identity rounds. A candidate who blocks it cannot open the exam. If a round should not need a camera, set its proctoring to Off in the pipeline.
+- Face events never change a score or a decision, and never end a round (unchanged).
+- Detection is probabilistic. Poor light, glasses or a low-quality webcam can produce false "no face" or mismatch events, which is why the admin sees them as context and a photo, not as a verdict. `FACE_MATCH_THRESHOLD` tunes identity strictness.
+- A browser cannot prove the camera feed is live and unmodified; a virtual camera could feed it video. The server only sees what the browser reports.
+- Models load from `/models` on first use (about 7 MB; the recognition model only for Identity rounds) and are cached by the browser.
+- Not run against a real camera in the environment that built this; the pure rules are covered by `tests/face-client.test.ts`. Use the checklist above on a real machine.
+
+
+## Background sweep (auto-submit expired rounds, finish stuck grading)
+
+Until now a round whose timer ran out stayed "in progress", and typed answers that were never graded (candidate closed the tab, AI was down) stayed ungraded, until someone next opened the site. The sweep does that work on a schedule. It supersedes the earlier notes that finalising and grading only happen lazily.
+
+### What one sweep does
+1. **Submits expired rounds.** Any round still in progress after its timer plus the 15 s grace window is submitted for the candidate (same code as the candidate's own submit, so MCQ and empty answers are scored and a round with nothing for the AI completes right away). Oldest first, up to 100 per run.
+2. **Finishes grading.** Submitted rounds that are not graded (including ones step 1 just submitted) get their typed answers graded and the round completed, which refreshes the weighted result as usual. Rounds submitted in the last 90 s are left to the candidate's own grading screen. Up to 15 rounds per run.
+3. **Housekeeping, at most once an hour.** Removes expired snapshots and face references (what `npm run purge` does), rate-limit counters older than 2 days, and sweep history older than 7 days.
+
+Safety rules: one sweep at a time (a 45 s database lease, so two schedulers never overlap); a run stops starting new work after about 40 s; after 3 unfinished gradings in a row it stops (the AI is probably down); a round whose grading failed 5 times in the last hour is left for an admin ("Grade now") instead of being retried forever. Submitting and grading are safe to repeat, so a race can never double-submit or double-score.
+
+### Setup
+1. Add `CRON_SECRET` to `.env` (16+ characters, e.g. `openssl rand -base64 24`). Without it `/api/cron/sweep` stays closed.
+2. `npx prisma migrate deploy` (adds the small `SweepRun` heartbeat table), restart.
+3. Pick **one** way to call it every minute:
+   - **Own computer or server:** `npm run sweep:watch` (keeps running, one sweep a minute; `-- --every 30` changes it), or a system cron line `* * * * * cd /path/to/app && npm run sweep`.
+   - **Vercel Pro:** add `vercel.json` with `{ "crons": [{ "path": "/api/cron/sweep", "schedule": "* * * * *" }] }`. Vercel sends `Authorization: Bearer <CRON_SECRET>` by itself. (Vercel Hobby only allows one cron per day, so use one of the options below there. Not shipped as a file because a per-minute cron makes a Hobby deployment fail.)
+   - **GitHub Actions (free, 5-minute minimum):** a workflow with `on: schedule: - cron: '*/5 * * * *'` and the step `curl -fsS -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" https://YOUR-SITE/api/cron/sweep`.
+   - **cron-job.org or similar:** URL `https://YOUR-SITE/api/cron/sweep`, a custom header `Authorization: Bearer <your secret>`, every minute.
+4. Open **Admin → Dashboard**. The new banner at the top shows when the sweep last ran. It turns amber (with the fix) if nothing has run for 5 minutes, or if rounds are stuck. **Run now** runs one sweep on demand, no secret needed.
+
+### API
+| Method and path | Auth | Result |
+| --- | --- | --- |
+| `GET` or `POST /api/cron/sweep` | `Authorization: Bearer <CRON_SECRET>` | the run report: `{ finalized, graded, stillPending, held, errors, stoppedEarly, skipped, housekeeping, durationMs }` |
+| `POST /api/admin/sweep` | admin session | `{ report, message }` |
+
+Errors use the usual `{ error: { code, message } }` shape: `CRON_NOT_CONFIGURED` (secret missing or too short), `CRON_DENIED` (401, wrong or missing secret). A run that finds another sweep holding the lease answers 200 with `skipped: "ALREADY_RUNNING"`.
+
+### Files
+New: `lib/sweeper-core.ts` (pure rules, tested), `lib/sweeper.ts`, `app/api/cron/sweep/route.ts`, `app/api/admin/sweep/route.ts`, `scripts/sweep.ts`, `components/admin/BackgroundJobsBanner.tsx`, `components/admin/SweepNowButton.tsx`, `prisma/migrations/20261005120000_sweep_runs`, `tests/sweeper.test.ts`, `tests/sweeper-run.test.ts`.
+Changed: `prisma/schema.prisma` (`SweepRun`), `lib/env.ts` (`CRON_SECRET`), `app/admin/(protected)/page.tsx` (banner), `package.json` (`sweep`, `sweep:watch`), `.env.example`.
+
+### Manual checklist
+- [ ] Before setting `CRON_SECRET`: open `/api/cron/sweep` (curl it). It answers `CRON_NOT_CONFIGURED`. The dashboard banner says the sweep has never run.
+- [ ] Set `CRON_SECRET`. `curl -H "Authorization: Bearer WRONG" .../api/cron/sweep` answers 401. With the right secret it answers 200 and a report.
+- [ ] As a candidate, start a short round (use a job with a 1-minute round), answer a few questions, then close the browser tab. Wait for the timer plus 15 s. Run the sweep (**Run now**): the report shows `finalized: 1`, and the candidate page shows the round as submitted automatically and graded (MCQ rounds are graded at once; AI rounds after the AI step).
+- [ ] Stop the AI (remove `GEMINI_API_KEY`), repeat with a typed-answer round: the round shows as waiting; after 3 sweeps in a row the run says `stoppedEarly`; put the key back and the next sweep grades it.
+- [ ] Press **Run now** twice quickly: the second says a sweep ran a moment ago.
+- [ ] Stop calling the sweep for 6 minutes: the banner turns amber with the fix.
+- [ ] `npm run sweep` prints one line and exits; `npm run sweep:watch` keeps going until Ctrl+C.
+- [ ] Admin audit log (database `AuditLog`) shows `SWEEP_RUN` entries only for runs that did something.
+
+### Assumptions and limits
+- The sweep never changes how a round is scored or decided; it only calls the same submit and grade steps earlier. Final decisions stay with admins.
+- Every grading is an AI call. Caps (15 rounds a run, retry limits) keep a backlog from becoming a surprise bill. A large backlog clears over several runs.
+- The one-at-a-time lease uses the database, so it also holds across several server instances. It lasts 45 s, so two runs closer than that are treated as one.
+- The 90 s wait before grading a freshly submitted round is so the sweep does not race the candidate's own grading screen; it only delays rounds nobody is waiting on.
+- The heartbeat records every run for 7 days (about 1,440 small rows a day at one run a minute).
+- Not run against a real database or scheduler in the environment that built this. The rules are covered by `tests/sweeper.test.ts`, and the run order, limits and failure handling by `tests/sweeper-run.test.ts` (with the database and grader replaced by fakes). Use the checklist above on your machine.

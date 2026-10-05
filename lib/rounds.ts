@@ -71,6 +71,7 @@ function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinut
     humanScored: r.humanScored,
     aiGraded: isAiGradedRound(r.roundType),
     proctored: r.proctoringLevel !== 'OFF',
+    faceLevel: r.proctoringLevel,
     maxTabSwitches: r.proctoringLevel !== 'OFF' ? r.maxTabSwitches : 0,
     blockPaste: r.proctoringLevel !== 'OFF' && r.blockPaste,
   };

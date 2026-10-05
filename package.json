@@ -14,13 +14,16 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
-    "purge": "tsx --env-file=.env --tsconfig tsconfig.json scripts/purge-expired.ts"
+    "purge": "tsx --env-file=.env --tsconfig tsconfig.json scripts/purge-expired.ts",
+    "sweep": "tsx --env-file=.env --tsconfig tsconfig.json scripts/sweep.ts",
+    "sweep:watch": "tsx --env-file=.env --tsconfig tsconfig.json scripts/sweep.ts --watch"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",
     "@prisma/client": "^6.2.0",
     "@radix-ui/react-label": "^2.1.1",
     "@radix-ui/react-slot": "^1.1.1",
+    "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "^2.4.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

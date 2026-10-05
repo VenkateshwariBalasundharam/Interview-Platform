@@ -4,6 +4,11 @@ const nextConfig = {
   poweredByHeader: false,
   // Resume parsers use Node-only code, so keep them out of the webpack bundle.
   serverExternalPackages: ['pdf-parse', 'mammoth', 'read-excel-file'],
+  // face-api bundles TensorFlow, which mentions Node's fs behind a runtime check; the browser build never needs it.
+  webpack: (config, { isServer }) => {
+    if (!isServer) config.resolve.fallback = { ...config.resolve.fallback, fs: false, path: false };
+    return config;
+  },
   async headers() {
     return [
       {

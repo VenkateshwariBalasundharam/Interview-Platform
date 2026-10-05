@@ -4,6 +4,7 @@ import { AlertTriangle, Maximize, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BLUR_MIN_AWAY_MS, MAX_EVENTS_PER_REQUEST, formatAway } from '@/lib/proctoring-core';
+import { FaceMonitor, FaceSetup, type FaceLevel } from '@/components/proctoring/FaceMonitor';
 
 const SEND_EVERY_MS = 5000;
 /** Events kept in memory while the network is down. The oldest are dropped past this. */
@@ -53,6 +54,7 @@ export function useProctor(): ProctorApi {
  */
 export function ProctorGate({
   enabled,
+  faceLevel = 'OFF',
   roundType,
   maxTabSwitches = 0,
   tabSwitchesUsed = 0,
@@ -60,6 +62,8 @@ export function ProctorGate({
   children,
 }: {
   enabled: boolean;
+  /** Camera checks. Anything but OFF adds the camera step and the live face monitor. */
+  faceLevel?: FaceLevel;
   roundType: string;
   /** Tab switches allowed before the round is submitted automatically. 0 means no limit. */
   maxTabSwitches?: number;
@@ -71,7 +75,7 @@ export function ProctorGate({
 }) {
   if (!enabled) return <>{children}</>;
   return (
-    <ActiveGate roundType={roundType} maxTabSwitches={maxTabSwitches} initialUsed={tabSwitchesUsed} blockPaste={blockPaste}>
+    <ActiveGate roundType={roundType} faceLevel={faceLevel} maxTabSwitches={maxTabSwitches} initialUsed={tabSwitchesUsed} blockPaste={blockPaste}>
       {children}
     </ActiveGate>
   );
@@ -83,7 +87,7 @@ interface ServerReply {
   ended?: boolean;
 }
 
-function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, children }: { roundType: string; maxTabSwitches: number; initialUsed: number; blockPaste: boolean; children: ReactNode }) {
+function ActiveGate({ roundType, faceLevel, maxTabSwitches, initialUsed, blockPaste, children }: { roundType: string; faceLevel: FaceLevel; maxTabSwitches: number; initialUsed: number; blockPaste: boolean; children: ReactNode }) {
   const [used, setUsed] = useState(initialUsed);
   const [warning, setWarning] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
@@ -96,6 +100,10 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
   const [covered, setCovered] = useState(true);
   const [reason, setReason] = useState<'start' | 'left'>('start');
   const [busy, setBusy] = useState(false);
+  // Camera: null until the camera is on. With face checks Off there is no camera step.
+  const [camera, setCamera] = useState<{ stream: MediaStream; level: Exclude<FaceLevel, 'OFF'> } | null>(null);
+  const needsCamera = faceLevel !== 'OFF';
+  const cameraPending = needsCamera && !camera;
 
   const queue = useRef<QueuedEvent[]>([]);
   const chain = useRef<Promise<void>>(Promise.resolve());
@@ -442,6 +450,18 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
           </Card>
         </div>
       )}
+      {camera && !ended && <FaceMonitor roundType={roundType} level={camera.level} stream={camera.stream} />}
+      {cameraPending && (
+        <div className="fixed inset-0 z-[105] flex items-center justify-center overflow-y-auto bg-background p-6" role="dialog" aria-modal="true">
+          <FaceSetup
+            level={faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'}
+            mode="live"
+            onReady={({ stream, level }) => {
+              if (stream) setCamera({ stream, level });
+            }}
+          />
+        </div>
+      )}
       {covered && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-background p-6" role="dialog" aria-modal="true" aria-labelledby="proctor-title">
           <Card className="w-full max-w-lg">
@@ -467,6 +487,7 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
                     <li>When you paste, and how many characters. The pasted text itself is not read or stored.</li>
                   )}
                   <li>When you leave full-screen.</li>
+                  {needsCamera && <li>How many faces your camera sees and whether your head is turned away{faceLevel === 'IDENTITY' ? ', and whether the face matches the one you registered' : ''}. Your video is not recorded.</li>}
                 </ul>
               </div>
               {maxTabSwitches > 0 ? (

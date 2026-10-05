@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, Briefcase, CheckCircle2, ClipboardList, FilePlus2, PlayCircle, Sparkles, Users } from 'lucide-react';
+import { BackgroundJobsBanner } from '@/components/admin/BackgroundJobsBanner';
 import { Donut } from '@/components/admin/Donut';
 import { StatCard } from '@/components/admin/StatCard';
 import { Badge } from '@/components/ui/badge';
@@ -62,6 +63,8 @@ export default async function AdminHome() {
 
   return (
     <>
+      <BackgroundJobsBanner />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={Briefcase} tone="blue" label="Jobs" value={t.jobs} />
         <StatCard icon={Users} tone="green" label="Total candidates" value={t.candidates} note={t.newCandidatesThisWeek > 0 ? `${t.newCandidatesThisWeek} new this week` : 'None new this week'} />
