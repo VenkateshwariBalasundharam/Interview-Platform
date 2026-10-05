@@ -73,6 +73,7 @@ export interface CandidateReview {
   name: string;
   email: string;
   status: 'ACTIVE' | 'DISQUALIFIED' | 'PENDING_REVIEW' | 'COMPLETED';
+  jobId: string;
   jobTitle: string;
   attempts: ReviewAttempt[];
 }
@@ -189,6 +190,7 @@ export async function getCandidateReview(candidateId: string): Promise<Candidate
     name: candidate.name,
     email: candidate.email,
     status: candidate.status,
+    jobId: candidate.jobId,
     jobTitle: candidate.job.title,
     attempts,
   };

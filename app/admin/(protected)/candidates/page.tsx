@@ -75,7 +75,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-3">
                         <Link href={`/admin/candidates/${c.id}`} className="text-xs underline">Answers &amp; scores</Link>
-                        <CandidateEditButton candidate={{ id: c.id, candidateCode: c.candidateCode, name: c.name, email: c.email }} />
+                        <CandidateEditButton candidate={{ id: c.id, candidateCode: c.candidateCode, name: c.name, email: c.email, jobId: c.job.id, hasStarted: c.hasStarted }} jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} />
                         <DeleteButton endpoint={`/api/admin/candidates/${c.id}`} dialogTitle={`Delete ${c.name}?`}>
                           <p>
                             This permanently deletes <strong className="text-foreground">{c.name}</strong> (<span className="font-mono">{c.candidateCode}</span>) with their answers, scores, results and resume file. Their Candidate ID stops working.

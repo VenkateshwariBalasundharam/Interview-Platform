@@ -135,12 +135,15 @@ export async function listCandidates(jobId?: string) {
       result: { select: { finalDecision: true } },
       // Rounds submitted but not fully graded yet (typed answers waiting for the AI).
       attempts: { where: { status: { in: ['SUBMITTED', 'AUTO_SUBMITTED'] } }, select: { roundType: true } },
+      // Any round at all (even one in progress): once a candidate has started, their job can no longer be changed.
+      _count: { select: { attempts: true } },
       ...RESUME_SELECT,
     },
   });
   // The storage key stays on the server; the browser only gets a summary.
-  return rows.map(({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError, attempts, result, ...rest }) => ({
+  return rows.map(({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError, attempts, result, _count, ...rest }) => ({
     ...rest,
+    hasStarted: _count.attempts > 0,
     finalDecision: result?.finalDecision ?? null,
     ungradedRounds: attempts.map((a) => a.roundType),
     resume: toResumeSummary({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError }),
@@ -149,14 +152,17 @@ export async function listCandidates(jobId?: string) {
 
 /**
  * Edits a candidate. A new date of birth replaces the password hash, clears any lock and signs the candidate out
- * (their old session stops working). The audit log records which fields changed, never the values.
+ * (their old session stops working). A new job is only accepted while the candidate has not started any round: their
+ * personalised question sets and fit summary were made for the old job, so those are dropped and made again for the new one.
+ * The audit log records which fields changed, never the values.
  */
 export async function updateCandidate(id: string, patch: UpdateCandidateInput, adminId: string) {
-  const existing = await prisma.candidate.findUnique({ where: { id }, select: { id: true, candidateCode: true } });
+  const existing = await prisma.candidate.findUnique({ where: { id }, select: { id: true, candidateCode: true, jobId: true } });
   if (!existing) throw err.notFound('Candidate not found', 'CANDIDATE_NOT_FOUND');
 
   const data: Prisma.CandidateUpdateInput = {};
   const fields: string[] = [];
+  let newJobId: string | null = null;
   if (patch.name !== undefined) {
     data.name = patch.name;
     fields.push('name');
@@ -179,18 +185,40 @@ export async function updateCandidate(id: string, patch: UpdateCandidateInput, a
     data.lockedUntil = null;
     fields.push('unlock');
   }
+  // Picking the job they already have is not a change.
+  if (patch.jobId !== undefined && patch.jobId !== existing.jobId) {
+    const job = await prisma.job.findUnique({ where: { id: patch.jobId }, select: { id: true } });
+    if (!job) throw err.notFound('Job not found', 'JOB_NOT_FOUND');
+    data.job = { connect: { id: job.id } };
+    newJobId = job.id;
+    fields.push('job');
+  }
   if (fields.length === 0) throw err.badRequest('Nothing to change', 'NOTHING_TO_CHANGE');
 
   let updated;
   try {
-    updated = await prisma.candidate.update({ where: { id }, data, select: { id: true, name: true, email: true, candidateCode: true } });
+    updated = await prisma.$transaction(async (tx) => {
+      if (newJobId) {
+        // Checked again inside the transaction, so a round started a moment ago is not missed.
+        if ((await tx.attempt.count({ where: { candidateId: id } })) > 0) {
+          throw err.conflict(
+            'This candidate has already started a round, so the job cannot be changed. Reset their rounds first (open the candidate and use “Reset round”), or delete and register them again under the right job.',
+            'JOB_LOCKED',
+          );
+        }
+        await tx.questionSet.deleteMany({ where: { candidateId: id } }); // personalised sets were written for the old job
+        await tx.fitSummary.deleteMany({ where: { candidateId: id } }); // the job-fit summary compared the resume to the old job
+        await tx.result.deleteMany({ where: { candidateId: id } });
+      }
+      return tx.candidate.update({ where: { id }, data, select: { id: true, name: true, email: true, candidateCode: true } });
+    });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      throw err.conflict('Another candidate for this job already uses that email.', 'EMAIL_TAKEN');
+      throw err.conflict(newJobId ? 'A candidate with this email is already registered for the job you picked.' : 'Another candidate for this job already uses that email.', 'EMAIL_TAKEN');
     }
     throw e;
   }
 
-  await audit({ actorType: 'ADMIN', actorId: adminId, action: 'CANDIDATE_UPDATED', entity: 'Candidate', entityId: id, meta: { candidateCode: existing.candidateCode, fields } });
+  await audit({ actorType: 'ADMIN', actorId: adminId, action: 'CANDIDATE_UPDATED', entity: 'Candidate', entityId: id, meta: { candidateCode: existing.candidateCode, fields, ...(newJobId ? { fromJobId: existing.jobId, toJobId: newJobId } : {}) } });
   return updated;
 }
