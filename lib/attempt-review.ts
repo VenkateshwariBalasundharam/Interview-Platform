@@ -198,7 +198,7 @@ export async function getCandidateReview(candidateId: string): Promise<Candidate
 export async function reviewCandidate(candidateId: string, decision: 'APPROVE' | 'REJECT', adminId: string) {
   const next = decision === 'APPROVE' ? 'ACTIVE' : 'DISQUALIFIED';
   // The status is part of the write, so two admins cannot both resolve the same flag.
-  const result = await prisma.candidate.updateMany({ where: { id: candidateId, status: 'PENDING_REVIEW' }, data: { status: next } });
+  const result = await prisma.candidate.updateMany({ where: { id: candidateId, status: 'PENDING_REVIEW' }, data: { status: next, reviewApprovedAt: decision === 'APPROVE' ? new Date() : null } });
   if (result.count === 0) {
     const exists = await prisma.candidate.findUnique({ where: { id: candidateId }, select: { id: true } });
     if (!exists) throw err.notFound('Candidate not found', 'CANDIDATE_NOT_FOUND');

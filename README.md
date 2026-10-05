@@ -568,7 +568,7 @@ Response: `{ "recorded": 3, "dropped": 0 }`.
 - A browser cannot reliably detect a second monitor, a phone, or a split-screen window. Switching to another app that does not hide the tab is caught only by the window-focus check (1.5 s or longer).
 - If the browser refuses full-screen, the candidate can continue; this is recorded and shown to the admin.
 - Events are sent every 5 s and when the tab comes back or closes. If the network is down they are retried; a candidate who closes the browser while offline can lose the last few.
-- Face presence and identity checks (the `PRESENCE` / `IDENTITY` levels, the face and snapshot tables) are **not** built yet; those levels currently behave like the browser-event monitoring above.
+- Face presence and identity checks: the **server side** is built (see *Face checks (server side)* below). The browser side (camera, face detection, consent screen) is **not** built yet, so nothing sends face readings today.
 - Not run against a real database or browser in my environment. The rules (validation, timestamps, limits, summaries, wording) are covered by `tests/proctoring.test.ts`; the capture and the admin screen need the checklist above.
 
 ## Final results — weighted score, Manager interview score, admin decision, CSV export
@@ -760,3 +760,50 @@ Needs one migration (`20261003180000_block_paste`): `RoundConfig.blockPaste`, de
 6. Admin → Candidates → the candidate → Proctoring: lines starting "Tried to paste", and `Pastes: 0 (N blocked)`.
 7. Turn the checkbox off on another job: pasting works and shows as a normal paste line.
 8. Hold Ctrl+V for 5 seconds: the notice stays up, and the log shows only 3 to 4 blocked lines.
+
+## Face checks (server side)
+
+Built: rules, storage and API. Not built: the browser (camera access, face detection, consent and registration screens, admin photo viewer).
+
+**Setup**
+1. Add `FACE_ENCRYPTION_KEY` to `.env`: `openssl rand -base64 32` (Windows PowerShell: `[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))`). Without it the face routes answer 409 `FACE_NOT_CONFIGURED`.
+2. Optional: `RETENTION_DAYS` (default 30), `FACE_MATCH_THRESHOLD` (default 0.6).
+3. No database migration is needed; the tables already exist.
+
+**What it does**
+- The browser reports only what it saw: `{ faces, lookingAway?, embedding? }`. The **server** decides the events (`NO_FACE`, `MULTIPLE_FACES`, `LOOKING_AWAY`, `IDENTITY_MISMATCH`) and does the identity comparison itself.
+- `PRESENCE` rounds record the first three. `IDENTITY` rounds also compare against the registered face. `OFF` stores nothing.
+- Face events never change a score, a flag or a decision, and never end a round. The same event type is stored at most once per 15 seconds, and at most 200 face events per attempt.
+- Photos are kept only for `MULTIPLE_FACES` and `IDENTITY_MISMATCH`, JPEG only, 150 KB max, and must arrive within 2 minutes of the event. They are stored in private storage and expire after `RETENTION_DAYS`.
+- The face reference is a 128-number descriptor, encrypted with AES-256-GCM. It is never returned by any route and never written to the audit log.
+- Camera checks need a consent record first (`FACE_CONSENT_REQUIRED` otherwise).
+
+**Routes**
+- `POST /api/candidate/face/consent`
+- `POST /api/candidate/face/enroll` body `{ embedding: number[128] }`
+- `POST /api/candidate/rounds/:roundType/face` body `{ faces, lookingAway?, embedding?, msAgo? }` answers `{ recorded, snapshotEventIds, needsEnrollment }`
+- `POST /api/candidate/rounds/:roundType/face/snapshot?eventId=...` raw `image/jpeg` body
+- `GET /api/admin/proctor-snapshots/:eventId` (admin only, never cached, each view audited)
+- `npm run purge` removes expired photos and face references; run it daily.
+
+**Resetting a round** already removes that attempt's proctoring events and photos (rows and files). The candidate's face reference is kept, because it belongs to the candidate and not to one round. Deleting a candidate removes the reference with them.
+
+**Checked here:** `tests/face.test.ts` (rules, thresholds, cooldown, encryption round-trip and tamper checks, report wording) and the existing suite pass. The database functions in `lib/face.ts` were type-checked only partly, because the Prisma client could not be generated in this sandbox; please run `npm run typecheck` and `npm test` on your machine.
+
+## "Selected for the next round" notice
+
+Two admin actions show it: **Approve** on a flagged candidate (Admin → Candidates), and **Shortlist** as the final decision (Admin → Candidate → Final result). A final **Reject** never shows anything to the candidate, and overrides an earlier approval. The candidate's dashboard shows a green notice: *you have been selected for the next round*, naming that round. The wording follows the round: ready to start, a live interview the hiring team will schedule, or opening later.
+
+- The notice goes away by itself once the candidate starts the next round, and never shows for rejected, disqualified or still-pending candidates.
+- Rejecting a candidate, flagging them again, or resetting a round clears the approval, so an old approval never shows against new results.
+- When the candidate has already finished every round (status Completed), the notice says they are selected to move forward and the team will contact them.
+- **Needs migrations:** run `npx prisma migrate dev` (adds `Candidate.reviewApprovedAt`, then fills it in for candidates approved earlier, using the audit log), and restart.
+- Tests: `approvedNextRound` in `tests/round-engine.test.ts`.
+
+## Final decision badge on the admin pages
+
+The admin **Candidates** list and each candidate's detail page now show a **shortlisted** (green) or **rejected** (red) badge beside the status once the final decision is made. A candidate who is disqualified still shows the red **disqualified** status. Undecided candidates show no extra badge.
+
+## What a candidate sees on their dashboard
+
+A badge beside Log out shows the outcome: **Shortlisted**, **Not selected** (after a final Reject), or **Disqualified**. Shortlisted candidates also get a green notice (the next round, or "we will contact you"); not-selected candidates get a polite thank-you; disqualified candidates keep the existing red notice. Nothing shows while the admin has not decided.

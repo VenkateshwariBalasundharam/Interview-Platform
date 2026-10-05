@@ -116,7 +116,7 @@ describe('descriptions', () => {
   it('does not crash on missing or odd meta, or on event types added later', () => {
     expect(() => describeEvent('TAB_SWITCH', null)).not.toThrow();
     expect(() => describeEvent('PASTE', ['x'])).not.toThrow();
-    expect(describeEvent('NO_FACE', null).text).toBe('No face');
+    expect(describeEvent('SOMETHING_NEW', null).text).toBe('Something new');
   });
 
   it('flags long absences and big pastes more strongly', () => {
@@ -140,7 +140,7 @@ describe('round summary', () => {
 
   it('counts events, time away and characters pasted', () => {
     const { counts } = summarizeEvents(events, roundStart);
-    expect(counts).toEqual({ tabSwitches: 2, pastes: 2, blockedPastes: 0, fullscreenExits: 1, fullscreenRefused: true, limitReached: false, awayMs: 15_000, pastedChars: 400 });
+    expect(counts).toEqual({ tabSwitches: 2, pastes: 2, blockedPastes: 0, fullscreenExits: 1, fullscreenRefused: true, limitReached: false, awayMs: 15_000, pastedChars: 400, noFace: 0, multipleFaces: 0, lookingAway: 0, identityMismatches: 0 });
   });
 
   it('orders the timeline and shows the time into the round', () => {
@@ -153,7 +153,7 @@ describe('round summary', () => {
   it('shows a dash when the round start is unknown, and handles an empty round', () => {
     expect(summarizeEvents(events, null).events[0].offsetLabel).toBe('—');
     expect(summarizeEvents([], roundStart)).toEqual({
-      counts: { tabSwitches: 0, pastes: 0, blockedPastes: 0, fullscreenExits: 0, fullscreenRefused: false, limitReached: false, awayMs: 0, pastedChars: 0 },
+      counts: { tabSwitches: 0, pastes: 0, blockedPastes: 0, fullscreenExits: 0, fullscreenRefused: false, limitReached: false, awayMs: 0, pastedChars: 0, noFace: 0, multipleFaces: 0, lookingAway: 0, identityMismatches: 0 },
       events: [],
     });
   });

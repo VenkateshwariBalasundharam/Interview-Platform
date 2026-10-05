@@ -20,7 +20,7 @@ const STATE_LABEL: Record<string, { text: string; tone: 'neutral' | 'good' | 'wa
 
 export default async function CandidateDashboard() {
   const session = await requireCandidatePage();
-  const [{ job }, { status, rounds }] = await Promise.all([getCandidatePipeline(session.jobId), getCandidateRounds(session)]);
+  const [{ job }, { status, rounds, selectedForNext, outcome }] = await Promise.all([getCandidatePipeline(session.jobId), getCandidateRounds(session)]);
 
   return (
     <main className="mx-auto max-w-3xl space-y-6 p-8">
@@ -29,7 +29,12 @@ export default async function CandidateDashboard() {
           <h1 className="text-xl font-semibold">Hello, {session.name}</h1>
           <p className="text-sm text-muted-foreground">Candidate ID {session.candidateCode} · {job.title}</p>
         </div>
-        <LogoutButton endpoint="/api/candidate/auth/logout" redirectTo="/login" />
+        <div className="flex flex-col items-end gap-2">
+          <LogoutButton endpoint="/api/candidate/auth/logout" redirectTo="/login" />
+          {outcome === 'SHORTLISTED' && <Badge tone="good">Shortlisted</Badge>}
+          {outcome === 'NOT_SELECTED' && <Badge tone="neutral">Not selected</Badge>}
+          {outcome === 'DISQUALIFIED' && <Badge tone="bad">Disqualified</Badge>}
+        </div>
       </header>
 
       {status === 'DISQUALIFIED' && (
@@ -39,10 +44,46 @@ export default async function CandidateDashboard() {
           </CardContent>
         </Card>
       )}
+      {outcome === 'NOT_SELECTED' && (
+        <Card>
+          <CardContent className="pt-5 text-sm">
+            Thank you for taking the time to interview with us. The hiring team has decided not to move forward with your application.
+          </CardContent>
+        </Card>
+      )}
       {status === 'PENDING_REVIEW' && (
         <Card className="border-amber-200 bg-amber-50">
           <CardContent className="pt-5 text-sm text-amber-900">
             One of your rounds is being reviewed by the hiring team. You can still take any rounds that are ready below.
+          </CardContent>
+        </Card>
+      )}
+
+      {outcome === 'SHORTLISTED' && !selectedForNext && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-5 text-sm text-green-900">
+            <p className="font-medium">Congratulations, you have been shortlisted.</p>
+            <p className="mt-1">The hiring team will contact you with the next steps.</p>
+          </CardContent>
+        </Card>
+      )}
+      {selectedForNext && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-5 text-sm text-green-900">
+            <p className="font-medium">Congratulations, you have been selected for the next round.</p>
+            <p className="mt-1">
+              The hiring team has approved your results.{' '}
+              {selectedForNext.kind === 'all_done' ? (
+                'You have finished every online round. The hiring team will contact you with the next steps.'
+              ) : (
+                <>
+                  Your next round is <strong>{ROUND_LIBRARY[selectedForNext.roundType].label}</strong>
+                  {selectedForNext.state === 'AVAILABLE' && '. You can start it below.'}
+                  {selectedForNext.state === 'SCHEDULED' && ', a live interview. The hiring team will contact you to schedule it.'}
+                  {selectedForNext.state === 'COMING_SOON' && '. The hiring team will let you know when it opens.'}
+                </>
+              )}
+            </p>
           </CardContent>
         </Card>
       )}

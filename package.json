@@ -13,7 +13,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "db:studio": "prisma studio",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "purge": "tsx --env-file=.env --tsconfig tsconfig.json scripts/purge-expired.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.6.0",

@@ -21,6 +21,12 @@ const envSchema = z.object({
   JUDGE0_API_HOST: z.string().optional(),
   // Optional JSON override of Judge0 language ids, e.g. {"python":100,"javascript":102}
   JUDGE0_LANGUAGE_IDS: z.string().optional(),
+  // Phase 6: face checks. FACE_ENCRYPTION_KEY is 32 random bytes, base64. Without it face checks stay off.
+  FACE_ENCRYPTION_KEY: z.string().optional(),
+  // Days that snapshots and face references are kept before the purge removes them (1 to 365, default 30).
+  RETENTION_DAYS: z.string().optional(),
+  // Distance above which two faces count as different people (0.3 to 0.9, default 0.6).
+  FACE_MATCH_THRESHOLD: z.string().optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
 

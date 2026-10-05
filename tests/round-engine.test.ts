@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  approvedNextRound,
+  candidateOutcome,
+  isSelectedNotice,
+  type RoundState,
   blockedReason,
   computeDeadline,
   computeRoundStates,
@@ -371,5 +375,60 @@ describe('AI-graded rounds', () => {
   it('a below-cutoff Technical round flags instead of disqualifying by default', () => {
     const mode = effectiveCutoffMode('DISQUALIFY', 'TECHNICAL', false);
     expect(decideOutcome({ score: 3, maxScore: 10, cutoffPercent: 60, cutoffMode: mode })).toBe('FLAGGED');
+  });
+});
+
+describe('approvedNextRound', () => {
+  const st = (...states: string[]) => states.map((state, i) => ({ roundType: (['CODING', 'TECHNICAL', 'HR', 'MANAGER'] as const)[i], state })) as { roundType: 'CODING' | 'TECHNICAL' | 'HR' | 'MANAGER'; state: RoundState }[];
+
+  it('names the first round that is ready', () => {
+    expect(approvedNextRound('ACTIVE', st('DONE', 'AVAILABLE', 'LOCKED'))).toEqual({ kind: 'next', roundType: 'TECHNICAL', state: 'AVAILABLE' });
+  });
+  it('names a live interview or a round that opens later', () => {
+    expect(approvedNextRound('ACTIVE', st('DONE', 'DONE', 'DONE', 'SCHEDULED'))).toEqual({ kind: 'next', roundType: 'MANAGER', state: 'SCHEDULED' });
+    expect(approvedNextRound('ACTIVE', st('DONE', 'COMING_SOON'))).toEqual({ kind: 'next', roundType: 'TECHNICAL', state: 'COMING_SOON' });
+  });
+  it('says nothing once the next round has been started or is being graded', () => {
+    expect(approvedNextRound('ACTIVE', st('DONE', 'IN_PROGRESS'))).toBeNull();
+    expect(approvedNextRound('ACTIVE', st('DONE', 'GRADING'))).toBeNull();
+  });
+  it('when every round is done, selects the candidate to move forward (ACTIVE or COMPLETED)', () => {
+    expect(approvedNextRound('COMPLETED', st('DONE', 'DONE', 'DONE', 'DONE'))).toEqual({ kind: 'all_done' });
+    expect(approvedNextRound('ACTIVE', st('DONE', 'DONE'))).toEqual({ kind: 'all_done' });
+  });
+  it('says nothing when the candidate is pending review or disqualified, or there are no rounds', () => {
+    expect(approvedNextRound('PENDING_REVIEW', st('DONE', 'AVAILABLE'))).toBeNull();
+    expect(approvedNextRound('DISQUALIFIED', st('DONE', 'CLOSED'))).toBeNull();
+    expect(approvedNextRound('ACTIVE', [])).toBeNull();
+  });
+});
+
+describe('isSelectedNotice', () => {
+  it('a Shortlist always shows it', () => {
+    expect(isSelectedNotice(false, 'SHORTLIST')).toBe(true);
+    expect(isSelectedNotice(true, 'SHORTLIST')).toBe(true);
+  });
+  it('a Reject never shows it, even after an earlier approval', () => {
+    expect(isSelectedNotice(true, 'REJECT')).toBe(false);
+    expect(isSelectedNotice(false, 'REJECT')).toBe(false);
+  });
+  it('with no final decision, only a review approval shows it', () => {
+    expect(isSelectedNotice(true, null)).toBe(true);
+    expect(isSelectedNotice(false, null)).toBe(false);
+  });
+});
+
+describe('candidateOutcome', () => {
+  it('disqualified always wins', () => {
+    expect(candidateOutcome('DISQUALIFIED', 'SHORTLIST')).toBe('DISQUALIFIED');
+    expect(candidateOutcome('DISQUALIFIED', null)).toBe('DISQUALIFIED');
+  });
+  it('shows the final decision', () => {
+    expect(candidateOutcome('COMPLETED', 'SHORTLIST')).toBe('SHORTLISTED');
+    expect(candidateOutcome('COMPLETED', 'REJECT')).toBe('NOT_SELECTED');
+  });
+  it('nothing while undecided', () => {
+    expect(candidateOutcome('ACTIVE', null)).toBeNull();
+    expect(candidateOutcome('PENDING_REVIEW', null)).toBeNull();
   });
 });

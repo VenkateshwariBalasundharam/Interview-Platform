@@ -155,14 +155,17 @@ export async function getProctoringReport(candidateId: string): Promise<ProctorR
     prisma.proctorEvent.findMany({
       where: { candidateId },
       orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
-      select: { id: true, roundType: true, type: true, occurredAt: true, meta: true },
+      select: { id: true, roundType: true, type: true, occurredAt: true, meta: true, snapshot: { select: { id: true, expiresAt: true } } },
     }),
   ]);
+  const now = new Date();
 
   const reports: ProctorRoundReport[] = [];
   for (const round of rounds as { roundType: RoundType; proctoringLevel: ProctoringLevel }[]) {
     const attempt = (attempts as { roundType: RoundType; startedAt: Date }[]).find((a) => a.roundType === round.roundType);
-    const own = (events as { id: string; roundType: RoundType; type: string; occurredAt: Date; meta: unknown }[]).filter((e) => e.roundType === round.roundType);
+    const own = (events as { id: string; roundType: RoundType; type: string; occurredAt: Date; meta: unknown; snapshot: { expiresAt: Date } | null }[])
+      .filter((e) => e.roundType === round.roundType)
+      .map((e) => ({ id: e.id, type: e.type, occurredAt: e.occurredAt, meta: e.meta, hasSnapshot: !!e.snapshot && e.snapshot.expiresAt > now }));
     const proctoredAndStarted = round.proctoringLevel !== 'OFF' && !!attempt;
     if (!proctoredAndStarted && own.length === 0) continue;
 

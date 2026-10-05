@@ -17,6 +17,9 @@ import { consumeRateLimit } from '@/lib/ratelimit';
 import { refreshResultSafely } from '@/lib/results';
 import { ROUND_KINDS, isGeneratedRound, rubricSchema, type SetStatus } from '@/lib/questions';
 import {
+  approvedNextRound,
+  candidateOutcome,
+  isSelectedNotice,
   SUBMIT_GRACE_SECONDS,
   blockedReason,
   computeDeadline,
@@ -105,14 +108,14 @@ async function loadPipeline(candidate: Pick<CandidateSession, 'id' | 'jobId'>) {
   const [rounds, attempts, current] = await Promise.all([
     prisma.roundConfig.findMany({ where: { jobId: candidate.jobId, enabled: true }, orderBy: { position: 'asc' } }),
     prisma.attempt.findMany({ where: { candidateId: candidate.id } }),
-    prisma.candidate.findUniqueOrThrow({ where: { id: candidate.id }, select: { status: true } }),
+    prisma.candidate.findUniqueOrThrow({ where: { id: candidate.id }, select: { status: true, reviewApprovedAt: true, result: { select: { finalDecision: true } } } }),
   ]);
   const states = computeRoundStates({
     rounds: rounds.map((r) => ({ roundType: r.roundType, humanScored: r.humanScored })),
     attempts: attempts.map((a) => ({ roundType: a.roundType, status: a.status })),
     candidateStatus: current.status,
   });
-  return { rounds, attempts, status: current.status as CandidateStatusName, states };
+  return { rounds, attempts, status: current.status as CandidateStatusName, states, outcome: candidateOutcome(current.status as CandidateStatusName, current.result?.finalDecision ?? null), selectedNotice: isSelectedNotice(current.reviewApprovedAt !== null, current.result?.finalDecision ?? null) };
 }
 
 /** Adds how many tab switches a running round has used. Skipped when the round has no limit. */
@@ -135,7 +138,8 @@ export async function getCandidateRounds(candidate: Pick<CandidateSession, 'id' 
     const attempt = ctx.attempts.find((a) => a.roundType === r.roundType);
     return { ...toRoundInfo(r), state: ctx.states[i].state, result: attempt ? toResult(attempt, r) : null };
   });
-  return { status: ctx.status, rounds };
+  const selected = ctx.selectedNotice ? approvedNextRound(ctx.status, ctx.states) : null;
+  return { status: ctx.status, rounds, selectedForNext: selected, outcome: ctx.outcome };
 }
 
 // ───────────────────────── One round's page ─────────────────────────
@@ -403,7 +407,7 @@ async function completeInTx(tx: Tx, attemptId: string): Promise<Completed | null
     await tx.candidate.update({ where: { id: attempt.candidate.id }, data: { status: 'DISQUALIFIED' } });
   } else if (verdict === 'FLAGGED' || needsReview) {
     // A flag pauses this round for a human decision; the candidate can still carry on with later rounds.
-    await tx.candidate.updateMany({ where: { id: attempt.candidate.id, status: 'ACTIVE' }, data: { status: 'PENDING_REVIEW' } });
+    await tx.candidate.updateMany({ where: { id: attempt.candidate.id, status: 'ACTIVE' }, data: { status: 'PENDING_REVIEW', reviewApprovedAt: null } });
   }
   return {
     candidateId: attempt.candidate.id,

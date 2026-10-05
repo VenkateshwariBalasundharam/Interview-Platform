@@ -137,6 +137,13 @@ export function computeFinalResult(input: ResultInput): FinalResult {
 
 export const SUGGESTION_LABEL: Record<Suggestion | Decision, string> = { SHORTLIST: 'Shortlist', REJECT: 'Reject', REVIEW: 'Needs a decision' };
 
+/** The badge shown beside a candidate's status once an admin has made the final decision; null while undecided. */
+export function decisionBadge(finalDecision: string | null): { label: string; tone: 'good' | 'bad' } | null {
+  if (finalDecision === 'SHORTLIST') return { label: 'shortlisted', tone: 'good' };
+  if (finalDecision === 'REJECT') return { label: 'rejected', tone: 'bad' };
+  return null;
+}
+
 /** Candidates the admin has not decided yet, which is every result until someone confirms it. */
 export function isPending(finalDecision: string | null): boolean {
   return finalDecision === null;

@@ -51,6 +51,7 @@ export async function resetCandidateRound(candidateId: string, roundType: RoundT
     prisma.attempt.delete({ where: { id: attempt.id } }),
     prisma.result.deleteMany({ where: { candidateId } }),
     prisma.fitSummary.deleteMany({ where: { candidateId } }),
+    prisma.candidate.updateMany({ where: { id: candidateId }, data: { reviewApprovedAt: null } }), // the approval was for the attempt being thrown away
     ...(plan.statusChanges ? [prisma.candidate.update({ where: { id: candidateId }, data: { status: plan.nextStatus } })] : []),
   ]);
 

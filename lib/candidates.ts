@@ -132,14 +132,16 @@ export async function listCandidates(jobId?: string) {
       lastLoginAt: true,
       createdAt: true,
       job: { select: { id: true, title: true } },
+      result: { select: { finalDecision: true } },
       // Rounds submitted but not fully graded yet (typed answers waiting for the AI).
       attempts: { where: { status: { in: ['SUBMITTED', 'AUTO_SUBMITTED'] } }, select: { roundType: true } },
       ...RESUME_SELECT,
     },
   });
   // The storage key stays on the server; the browser only gets a summary.
-  return rows.map(({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError, attempts, ...rest }) => ({
+  return rows.map(({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError, attempts, result, ...rest }) => ({
     ...rest,
+    finalDecision: result?.finalDecision ?? null,
     ungradedRounds: attempts.map((a) => a.roundType),
     resume: toResumeSummary({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError }),
   }));

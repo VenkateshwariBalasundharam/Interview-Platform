@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildResultsCsv, computeFinalResult, decisionBodySchema, isPending, managerScoreSchema, meetsCutoff, type ResultInput, type RoundInput } from '@/lib/final-result';
+import { buildResultsCsv, computeFinalResult, decisionBadge, decisionBodySchema, isPending, managerScoreSchema, meetsCutoff, type ResultInput, type RoundInput } from '@/lib/final-result';
 
 const round = (over: Partial<RoundInput> & Pick<RoundInput, 'roundType'>): RoundInput => ({
   label: over.roundType,
@@ -163,5 +163,14 @@ describe('CSV export', () => {
   it('leaves out round columns no row uses and copes with no rows', () => {
     expect(buildResultsCsv([row], labels)).not.toContain('Manager %');
     expect(buildResultsCsv([], labels).trim().split('\r\n')).toHaveLength(1);
+  });
+});
+
+describe('decisionBadge', () => {
+  it('labels the final decision, and shows nothing while undecided', () => {
+    expect(decisionBadge('SHORTLIST')).toEqual({ label: 'shortlisted', tone: 'good' });
+    expect(decisionBadge('REJECT')).toEqual({ label: 'rejected', tone: 'bad' });
+    expect(decisionBadge(null)).toBeNull();
+    expect(decisionBadge('SOMETHING_ELSE')).toBeNull();
   });
 });

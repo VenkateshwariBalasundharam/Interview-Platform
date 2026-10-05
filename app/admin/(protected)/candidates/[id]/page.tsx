@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { getCandidateReview, type ReviewAttempt } from '@/lib/attempt-review';
 import { getFitSummaryState } from '@/lib/fit-summaries';
 import { getProctoringReport } from '@/lib/proctoring';
+import { decisionBadge } from '@/lib/final-result';
 import { getCandidateResult } from '@/lib/results';
 import { AppError } from '@/lib/http';
 import { CODING_POINTS_PER_PROBLEM, verdictLabel } from '@/lib/coding';
@@ -53,7 +54,10 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           </p>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <Badge tone={STATUS_TONE[review.status]}>{review.status.replace('_', ' ').toLowerCase()}</Badge>
+          <div className="flex gap-1">
+            <Badge tone={STATUS_TONE[review.status]}>{review.status.replace('_', ' ').toLowerCase()}</Badge>
+            {decisionBadge(resultView.finalDecision) && <Badge tone={decisionBadge(resultView.finalDecision)!.tone}>{decisionBadge(resultView.finalDecision)!.label}</Badge>}
+          </div>
           <CandidateReviewActions candidateId={review.id} canReview={review.status === 'PENDING_REVIEW'} ungradedRounds={ungradedRounds} />
           <div className="flex gap-2">
             <CandidateEditButton candidate={{ id: review.id, candidateCode: review.candidateCode, name: review.name, email: review.email }} size="default" label="Edit candidate" />

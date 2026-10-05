@@ -171,6 +171,8 @@ model Candidate {
   resumeParsed     Json?
   resumeParsedAt   DateTime?
   resumeParseError String?
+  /// Set when an admin approves a flagged candidate; the dashboard then tells them they are selected for the next round.
+  reviewApprovedAt DateTime?
   createdAt        DateTime        @default(now())
 
   job           Job               @relation(fields: [jobId], references: [id])

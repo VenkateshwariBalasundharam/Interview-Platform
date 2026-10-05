@@ -136,6 +136,7 @@ export interface RawEvent {
   type: string;
   occurredAt: Date;
   meta: unknown;
+  hasSnapshot?: boolean;
 }
 
 export type EventTone = 'neutral' | 'warn' | 'bad';
@@ -149,6 +150,8 @@ export interface ReportEvent {
   atIso: string;
   text: string;
   tone: EventTone;
+  /** A photo was stored for this event. The admin can open it until it expires. */
+  hasSnapshot: boolean;
 }
 
 export interface EventCounts {
@@ -163,6 +166,11 @@ export interface EventCounts {
   limitReached: boolean;
   awayMs: number;
   pastedChars: number;
+  /** Face checks. All zero while a round has no face readings. */
+  noFace: number;
+  multipleFaces: number;
+  lookingAway: number;
+  identityMismatches: number;
 }
 
 function readNumber(meta: unknown, key: string): number {
@@ -238,14 +246,23 @@ export function describeEvent(type: string, meta: unknown): { text: string; tone
       return readFlag(meta, 'refused')
         ? { text: 'The browser refused full-screen; the candidate continued without it', tone: 'warn' }
         : { text: 'Left full-screen', tone: 'warn' };
+    case 'NO_FACE':
+      return { text: 'No face was visible on the camera', tone: 'warn' };
+    case 'MULTIPLE_FACES': {
+      const faces = readNumber(meta, 'faces');
+      return { text: faces > 1 ? `${faces} faces were visible on the camera` : 'More than one face was visible on the camera', tone: 'bad' };
+    }
+    case 'LOOKING_AWAY':
+      return { text: 'Head turned away from the screen', tone: 'warn' };
+    case 'IDENTITY_MISMATCH':
+      return { text: 'The face on camera did not match the face registered at the start', tone: 'bad' };
     default:
-      // Face-check events arrive in a later step. Show them in plain words rather than hiding them.
       return { text: type.replace(/_/g, ' ').toLowerCase().replace(/^./, (c) => c.toUpperCase()), tone: 'warn' };
   }
 }
 
 export function summarizeEvents(events: RawEvent[], roundStart: Date | null): { counts: EventCounts; events: ReportEvent[] } {
-  const counts: EventCounts = { tabSwitches: 0, pastes: 0, blockedPastes: 0, fullscreenExits: 0, fullscreenRefused: false, limitReached: false, awayMs: 0, pastedChars: 0 };
+  const counts: EventCounts = { tabSwitches: 0, pastes: 0, blockedPastes: 0, fullscreenExits: 0, fullscreenRefused: false, limitReached: false, awayMs: 0, pastedChars: 0, noFace: 0, multipleFaces: 0, lookingAway: 0, identityMismatches: 0 };
   const sorted = [...events].sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime() || a.id.localeCompare(b.id));
 
   const rows = sorted.map((e): ReportEvent => {
@@ -262,7 +279,10 @@ export function summarizeEvents(events: RawEvent[], roundStart: Date | null): { 
     } else if (e.type === 'FULLSCREEN_EXIT') {
       if (readFlag(e.meta, 'refused')) counts.fullscreenRefused = true;
       else counts.fullscreenExits += 1;
-    }
+    } else if (e.type === 'NO_FACE') counts.noFace += 1;
+    else if (e.type === 'MULTIPLE_FACES') counts.multipleFaces += 1;
+    else if (e.type === 'LOOKING_AWAY') counts.lookingAway += 1;
+    else if (e.type === 'IDENTITY_MISMATCH') counts.identityMismatches += 1;
     const offsetSec = roundStart ? Math.max(0, Math.floor((e.occurredAt.getTime() - roundStart.getTime()) / 1000)) : null;
     const { text, tone } = describeEvent(e.type, e.meta);
     return {
@@ -273,6 +293,7 @@ export function summarizeEvents(events: RawEvent[], roundStart: Date | null): { 
       atIso: e.occurredAt.toISOString(),
       text,
       tone,
+      hasSnapshot: e.hasSnapshot === true,
     };
   });
 

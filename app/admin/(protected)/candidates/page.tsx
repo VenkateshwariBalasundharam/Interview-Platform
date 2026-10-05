@@ -7,6 +7,7 @@ import { ResumeCell } from '@/components/ResumeCell';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { listCandidates } from '@/lib/candidates';
+import { decisionBadge } from '@/lib/final-result';
 import { listJobs } from '@/lib/jobs';
 
 export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ jobId?: string }> }) {
@@ -49,6 +50,7 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
                   <td className="p-3">{c.job.title}</td>
                   <td className="p-3">
                     <Badge tone={c.status === 'DISQUALIFIED' ? 'bad' : c.status === 'PENDING_REVIEW' ? 'warn' : 'neutral'}>{c.status.replace('_', ' ').toLowerCase()}</Badge>
+                    {decisionBadge(c.finalDecision) && <Badge tone={decisionBadge(c.finalDecision)!.tone} className="ml-1">{decisionBadge(c.finalDecision)!.label}</Badge>}
                     {c.lockedUntil && c.lockedUntil.getTime() > now && <Badge tone="warn" className="ml-1">login locked</Badge>}
                   </td>
                   <td className="p-3 align-top"><ResumeCell candidateId={c.id} initial={c.resume} /></td>

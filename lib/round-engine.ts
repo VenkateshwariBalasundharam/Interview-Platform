@@ -208,6 +208,50 @@ export function computeRoundStates(input: {
   });
 }
 
+/**
+ * Whether the "selected for the next round" notice may show. A final Shortlist always counts; an earlier review
+ * approval counts unless the admin later made the final decision Reject. A Reject never shows anything to the candidate.
+ */
+export function isSelectedNotice(reviewApproved: boolean, finalDecision: string | null): boolean {
+  if (finalDecision === 'SHORTLIST') return true;
+  if (finalDecision === 'REJECT') return false;
+  return reviewApproved;
+}
+
+export type CandidateOutcome = 'SHORTLISTED' | 'NOT_SELECTED' | 'DISQUALIFIED';
+
+/** The headline outcome a candidate sees at the top of their dashboard; null while nothing has been decided. */
+export function candidateOutcome(candidateStatus: CandidateStatusName, finalDecision: string | null): CandidateOutcome | null {
+  if (candidateStatus === 'DISQUALIFIED') return 'DISQUALIFIED';
+  if (finalDecision === 'SHORTLIST') return 'SHORTLISTED';
+  if (finalDecision === 'REJECT') return 'NOT_SELECTED';
+  return null;
+}
+
+/**
+ * What to tell a candidate whose flagged result an admin approved.
+ *  - a round that is ready, a live interview, or opening later: they are selected for that round;
+ *  - every round already done (the candidate is COMPLETED): they are selected to move forward and the team will be in touch;
+ *  - null when the candidate is not ACTIVE/COMPLETED, or has already started the next round (in progress or grading),
+ *    so the notice goes away on its own.
+ */
+export type ApprovedNotice =
+  | { kind: 'next'; roundType: RoundType; state: 'AVAILABLE' | 'SCHEDULED' | 'COMING_SOON' }
+  | { kind: 'all_done' };
+
+export function approvedNextRound(
+  candidateStatus: CandidateStatusName,
+  states: { roundType: RoundType; state: RoundState }[],
+): ApprovedNotice | null {
+  if (candidateStatus !== 'ACTIVE' && candidateStatus !== 'COMPLETED') return null;
+  for (const s of states) {
+    if (s.state === 'DONE') continue;
+    if (s.state === 'AVAILABLE' || s.state === 'SCHEDULED' || s.state === 'COMING_SOON') return { kind: 'next', roundType: s.roundType, state: s.state };
+    return null; // in progress, grading, locked or closed: nothing new to announce
+  }
+  return states.length > 0 ? { kind: 'all_done' } : null;
+}
+
 /** Why a candidate cannot start a round, in words they can act on. Null when they can. */
 export function blockedReason(state: RoundState): string | null {
   switch (state) {
