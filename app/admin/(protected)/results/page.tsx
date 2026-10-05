@@ -17,12 +17,9 @@ export default async function ResultsPage({ searchParams }: { searchParams: Prom
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Results</h1>
-          <p className="text-sm text-muted-foreground">
-            Weighted scores and suggested decisions. A suggestion is never final until an admin confirms it. {pending > 0 && <span className="font-medium text-foreground">{pending} waiting for a decision.</span>}
-          </p>
-        </div>
+        <p className="text-sm text-muted-foreground">
+          A suggestion is never final until an admin confirms it. {pending > 0 && <span className="font-medium text-foreground">{pending} waiting for a decision.</span>}
+        </p>
         <div className="flex gap-2">
           <a href={`/api/admin/results/export${jobId ? `?jobId=${encodeURIComponent(jobId)}` : ''}`} className="rounded-md border bg-card px-3 py-1.5 text-sm hover:bg-muted">
             Download CSV

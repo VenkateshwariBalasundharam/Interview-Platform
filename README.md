@@ -807,3 +807,40 @@ The admin **Candidates** list and each candidate's detail page now show a **shor
 ## What a candidate sees on their dashboard
 
 A badge beside Log out shows the outcome: **Shortlisted**, **Not selected** (after a final Reject), or **Disqualified**. Shortlisted candidates also get a green notice (the next round, or "we will contact you"); not-selected candidates get a polite thank-you; disqualified candidates keep the existing red notice. Nothing shows while the admin has not decided.
+
+## Admin look (dark sidebar and dashboard)
+
+- New admin shell: dark sidebar (Dashboard, Jobs, Candidates, Results), top bar with your name and Log out. On small screens the menu becomes a row under the top bar.
+- **Dashboard** (`/admin`), all from real data: Jobs, Total candidates (new this week), Rounds in progress, Finished all rounds; Interview pipeline (how many handed in each round); Candidate outcomes ring; Average score by round; Recent rounds; Quick actions; Jobs overview; Hiring funnel; Needs your attention; Top scoring candidates.
+- **Candidates** now has filter cards: All, Pending review, Awaiting decision, Shortlisted, Rejected, Disqualified (`?tab=`), which combine with the job filter.
+- **Jobs** and **Candidates** tables use the new card style.
+- Not built because the app has no such feature yet: Interviews, Question Bank (global), Analytics, Notifications, Activity Log, Settings, and the AI hiring recommendation score. "Needs your attention" and "Top scoring candidates" stand in for notifications and recommendations.
+- Logic is in `lib/admin-dashboard-core.ts` (tested in `tests/admin-dashboard.test.ts`); the database read is `lib/admin-dashboard.ts`. No migration needed.
+
+## Page header on every admin page
+
+The top bar now shows the page title and a one-line description on the left (Dashboard, Jobs, New job, Job details, Question sets, Candidates, Candidate details, Candidate questions, Results). It follows the address, so any new admin page falls back to "Admin" until it is added in `lib/admin-page-title.ts` (tested in `tests/admin-page-title.test.ts`). The list pages no longer repeat the title in the page body.
+
+## Top-bar bell and account menu
+
+The right side of the admin top bar now has a **bell** with a red count and an **account menu** (round photo-style icon, name, "Admin", chevron). The count is the number of candidates waiting for you: pending review plus completed-but-undecided. Clicking the bell lists them with links to the filtered Candidates page; the chevron menu holds **Log out**. Both close on an outside click or Escape. Logic is in `bellItems` / `bellBadge` (`lib/admin-dashboard-core.ts`, tested); the UI is `components/admin/AdminTopbarActions.tsx`. No profile photos exist in the app, so the circle shows a generic person icon.
+
+## Candidate popups and matching sign-in pages
+
+**Popups during a proctored round**
+- **Switching tab or window:** when the candidate comes back, a popup says how long they were away ("12 seconds", "1 minute 5 seconds"), that it was recorded and that the hiring team can see it. If the round has a tab-switch limit it also shows "Tab switches used: X of Y". The exam is locked behind the popup until they press **I understand, continue**; the timer keeps running. This works whether or not the round has a limit (before, only rounds with a limit warned, in a small corner message).
+- **Leaving full-screen:** the existing full-screen cover now says plainly that it was recorded and the hiring team can see it, with a **Return to full-screen** button. If a tab switch happened at the same time it is mentioned in that same box, so there is never a double popup.
+- Short focus losses under 1.5 seconds that are not a hidden tab are not recorded, so they show no popup. The confirm boxes (Submit, Finish) never trigger one.
+- Wording logic: `formatAway` in `lib/proctoring-core.ts` (tested). UI: `components/proctoring/ProctorGate.tsx`.
+
+**Sign-in pages**
+Candidate login and Admin login (`/login`, `/staff-login`, `/admin/login`) now share one layout, `components/AuthShell.tsx`: dark navy brand panel on the left (same colours as the admin sidebar), the form card on the right, and a compact brand header on small screens. Change it once and all three pages follow. The admin sign-in address is still not linked from the candidate page.
+
+## Why pages feel slow, and what to check
+
+1. **`npm run dev` compiles each page the first time you open it** (you see "Compiling /admin/candidates ..." in the terminal, often 3 to 7 seconds). That is the biggest cause of "slow whenever I click something new". To see real speed run `npm run build` then `npm start`, and open the app on port 3000.
+2. **Every database query is a trip to the database server.** Neon projects are tied to one region (the host name in `DATABASE_URL` shows it, for example `us-east-2`). The farther you are from it, the more each query costs, and one page can make several. Creating the Neon project in a region near you is the biggest real fix.
+3. **Neon free databases go to sleep** when idle; the first request after a pause takes a few seconds to wake it. Use the pooled connection string (host contains `-pooler`).
+4. **To see what is slow:** add `PRISMA_QUERY_LOG=1` to `.env`, restart, and watch the terminal: each query prints its time in ms. Remove it afterwards.
+
+Changes made for speed: the admin session is looked up once per page instead of twice (`cache()` in `lib/auth.ts`), and the top-bar bell now runs two cheap counts in parallel with the session check instead of loading every completed candidate.

@@ -1,4 +1,5 @@
 import { ADMIN_LOGIN_PATH } from '@/lib/admin-paths';
+import { cache } from 'react';
 import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import type { NextResponse } from 'next/server';
@@ -40,15 +41,17 @@ export interface CandidateSession {
   jobId: string;
 }
 
-export async function getAdminSession(): Promise<AdminSession | null> {
+// Wrapped in React's cache(): the layout and the page both ask for the session while one page is rendering, and this
+// makes them share one database lookup instead of paying for two round trips. The cache lasts for that one request only.
+export const getAdminSession = cache(async (): Promise<AdminSession | null> => {
   const store = await cookies();
   const claims = await verifySession(store.get(ADMIN_COOKIE)?.value, 'admin');
   if (!claims) return null;
   return prisma.adminUser.findUnique({ where: { id: claims.sub }, select: { id: true, email: true, name: true } });
-}
+});
 
 /** Valid only while the token's sid matches the candidate's current DB sessionId (single active session). */
-export async function getCandidateSession(): Promise<CandidateSession | null> {
+export const getCandidateSession = cache(async (): Promise<CandidateSession | null> => {
   const store = await cookies();
   const claims = await verifySession(store.get(CANDIDATE_COOKIE)?.value, 'candidate');
   if (!claims || !claims.sid) return null;
@@ -59,7 +62,7 @@ export async function getCandidateSession(): Promise<CandidateSession | null> {
   if (!candidate || candidate.sessionId !== claims.sid) return null;
   const { sessionId: _omit, ...session } = candidate;
   return session;
-}
+});
 
 export async function requireAdmin(): Promise<AdminSession> {
   const admin = await getAdminSession();

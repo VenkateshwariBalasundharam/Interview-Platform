@@ -299,3 +299,16 @@ export function summarizeEvents(events: RawEvent[], roundStart: Date | null): { 
 
   return { counts, events: rows };
 }
+
+/** "a moment", "12 seconds", "1 minute 5 seconds": how long the candidate was away, in words they can read at a glance. */
+export function formatAway(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 1000) return 'a moment';
+  const total = Math.round(ms / 1000);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (total < 60) return plural(total, 'second');
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) return minutes > 0 ? `${plural(hours, 'hour')} ${plural(minutes, 'minute')}` : plural(hours, 'hour');
+  return seconds > 0 ? `${plural(minutes, 'minute')} ${plural(seconds, 'second')}` : plural(minutes, 'minute');
+}

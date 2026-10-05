@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { averageByRound, funnel, matchesTab, outcomeCounts, outcomeOf, parseTab, roundCompletion, share, tabCounts } from '@/lib/admin-dashboard-core';
+import { averageByRound, bellBadge, bellItems, funnel, matchesTab, outcomeCounts, outcomeOf, parseTab, roundCompletion, share, tabCounts } from '@/lib/admin-dashboard-core';
 
 const c = (status: string, finalDecision: string | null = null, hasAttempt = true) => ({ status, finalDecision, hasAttempt });
 
@@ -76,5 +76,22 @@ describe('candidate tabs', () => {
     expect(tabCounts(list)).toEqual({ all: 6, pending: 1, awaiting: 1, shortlisted: 1, rejected: 1, disqualified: 1 });
     expect(list.filter((x) => matchesTab('shortlisted', x))).toHaveLength(1);
     expect(list.filter((x) => matchesTab('all', x))).toHaveLength(6);
+  });
+});
+
+describe('notification bell', () => {
+  it('lists only what is waiting, with the right link and grammar', () => {
+    expect(bellItems(0, 0)).toEqual([]);
+    expect(bellItems(1, 0)).toEqual([{ text: '1 candidate needs your review', href: '/admin/candidates?tab=pending' }]);
+    expect(bellItems(3, 2).map((i) => i.text)).toEqual(['3 candidates need your review', '2 candidates are waiting for a final decision']);
+    expect(bellItems(0, 1)[0].text).toBe('1 candidate is waiting for a final decision');
+  });
+  it('badge is hidden at zero and shortened above nine', () => {
+    expect(bellBadge(0)).toBeNull();
+    expect(bellBadge(-2)).toBeNull();
+    expect(bellBadge(Number.NaN)).toBeNull();
+    expect(bellBadge(5)).toBe('5');
+    expect(bellBadge(9)).toBe('9');
+    expect(bellBadge(10)).toBe('9+');
   });
 });

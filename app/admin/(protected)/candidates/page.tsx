@@ -7,17 +7,34 @@ import { ResumeCell } from '@/components/ResumeCell';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { listCandidates } from '@/lib/candidates';
+import { CANDIDATE_TABS, TAB_LABEL, matchesTab, parseTab, tabCounts } from '@/lib/admin-dashboard-core';
 import { decisionBadge } from '@/lib/final-result';
 import { listJobs } from '@/lib/jobs';
 
-export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ jobId?: string }> }) {
-  const { jobId } = await searchParams;
-  const [jobs, candidates] = await Promise.all([listJobs(), listCandidates(jobId)]);
+export default async function CandidatesPage({ searchParams }: { searchParams: Promise<{ jobId?: string; tab?: string }> }) {
+  const { jobId, tab: rawTab } = await searchParams;
+  const tab = parseTab(rawTab);
+  const [jobs, everyone] = await Promise.all([listJobs(), listCandidates(jobId)]);
+  const counts = tabCounts(everyone);
+  const candidates = everyone.filter((c) => matchesTab(tab, c));
+  const tabHref = (t: string) => `/admin/candidates?${new URLSearchParams({ ...(jobId ? { jobId } : {}), ...(t === 'all' ? {} : { tab: t }) }).toString()}`;
   const now = Date.now();
 
   return (
     <>
-      <h1 className="text-xl font-semibold">Candidates</h1>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+        {CANDIDATE_TABS.map((t) => (
+          <Link
+            key={t}
+            href={tabHref(t)}
+            aria-current={tab === t ? 'page' : undefined}
+            className={`rounded-xl border p-4 shadow-sm transition-colors ${tab === t ? 'border-blue-600 bg-blue-50' : 'bg-card hover:bg-slate-50'}`}
+          >
+            <p className="text-xs text-muted-foreground">{TAB_LABEL[t]}</p>
+            <p className="text-2xl font-semibold tabular-nums">{counts[t]}</p>
+          </Link>
+        ))}
+      </div>
 
       <Card>
         <CardHeader>
@@ -31,16 +48,16 @@ export default async function CandidatesPage({ searchParams }: { searchParams: P
 
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">Filter by job:</span>
-        <Link href="/admin/candidates" className={jobId ? 'underline' : 'font-medium'}>All</Link>
-        {jobs.map((j) => <Link key={j.id} href={`/admin/candidates?jobId=${j.id}`} className={jobId === j.id ? 'font-medium' : 'underline'}>{j.title}</Link>)}
+        <Link href={tab === 'all' ? '/admin/candidates' : `/admin/candidates?tab=${tab}`} className={jobId ? 'underline' : 'font-medium'}>All</Link>
+        {jobs.map((j) => <Link key={j.id} href={`/admin/candidates?${new URLSearchParams({ jobId: j.id, ...(tab === 'all' ? {} : { tab }) }).toString()}`} className={jobId === j.id ? 'font-medium' : 'underline'}>{j.title}</Link>)}
       </div>
 
       {candidates.length === 0 ? (
-        <p className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">No candidates yet.</p>
+        <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">{everyone.length === 0 ? 'No candidates yet.' : `No candidates in “${TAB_LABEL[tab]}”.`}</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
           <table className="w-full text-sm">
-            <thead className="bg-muted text-left"><tr><th className="p-3">Candidate ID</th><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Job</th><th className="p-3">Status</th><th className="p-3">Resume</th><th className="p-3">Review</th></tr></thead>
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="p-3">Candidate ID</th><th className="p-3">Name</th><th className="p-3">Email</th><th className="p-3">Job</th><th className="p-3">Status</th><th className="p-3">Resume</th><th className="p-3">Review</th></tr></thead>
             <tbody>
               {candidates.map((c) => (
                 <tr key={c.id} className="border-t">

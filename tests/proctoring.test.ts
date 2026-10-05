@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatAway,
   MAX_EVENTS_PER_REQUEST,
   describeEvent,
   formatDuration,
@@ -243,5 +244,23 @@ describe('blocked paste', () => {
     expect(counts.pastes).toBe(1);
     expect(counts.blockedPastes).toBe(1);
     expect(counts.pastedChars).toBe(30);
+  });
+});
+
+describe('formatAway', () => {
+  it('words short, minute and hour absences', () => {
+    expect(formatAway(0)).toBe('a moment');
+    expect(formatAway(400)).toBe('a moment');
+    expect(formatAway(1000)).toBe('1 second');
+    expect(formatAway(12_400)).toBe('12 seconds');
+    expect(formatAway(60_000)).toBe('1 minute');
+    expect(formatAway(65_000)).toBe('1 minute 5 seconds');
+    expect(formatAway(125_000)).toBe('2 minutes 5 seconds');
+    expect(formatAway(3_600_000)).toBe('1 hour');
+    expect(formatAway(3_900_000)).toBe('1 hour 5 minutes');
+  });
+  it('copes with bad input', () => {
+    expect(formatAway(Number.NaN)).toBe('a moment');
+    expect(formatAway(-5)).toBe('a moment');
   });
 });

@@ -12,16 +12,15 @@ export default async function JobsPage() {
   const jobs = await listJobs();
   return (
     <>
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Jobs</h1>
+      <div className="flex justify-end">
         <Button asChild><Link href="/admin/jobs/new">New job</Link></Button>
       </div>
       {jobs.length === 0 ? (
-        <p className="rounded-lg border bg-card p-6 text-sm text-muted-foreground">No jobs yet. Create one to set up its interview pipeline.</p>
+        <p className="rounded-xl border bg-card p-6 text-sm text-muted-foreground">No jobs yet. Create one to set up its interview pipeline.</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border bg-card">
+        <div className="overflow-x-auto rounded-xl border bg-card shadow-sm">
           <table className="w-full text-sm">
-            <thead className="bg-muted text-left"><tr><th className="p-3">Title</th><th className="p-3">Tier</th><th className="p-3">Rounds</th><th className="p-3">Candidates</th><th className="p-3">Final result</th><th className="p-3"><span className="sr-only">Actions</span></th></tr></thead>
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="p-3">Title</th><th className="p-3">Tier</th><th className="p-3">Rounds</th><th className="p-3">Candidates</th><th className="p-3">Final result</th><th className="p-3"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>
               {jobs.map((j) => (
                 <tr key={j.id} className="border-t">

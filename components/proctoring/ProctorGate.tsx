@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AlertTriangle, Maximize, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { BLUR_MIN_AWAY_MS, MAX_EVENTS_PER_REQUEST } from '@/lib/proctoring-core';
+import { BLUR_MIN_AWAY_MS, MAX_EVENTS_PER_REQUEST, formatAway } from '@/lib/proctoring-core';
 
 const SEND_EVERY_MS = 5000;
 /** Events kept in memory while the network is down. The oldest are dropped past this. */
@@ -88,6 +88,8 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
   const [warning, setWarning] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
   const [pasteNotice, setPasteNotice] = useState(false);
+  // Shown as a popup when the candidate comes back from another tab or window.
+  const [awayNotice, setAwayNotice] = useState<{ awayMs: number; source: 'hidden' | 'blur' } | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastBlockedAt = useRef(0);
   // Covered from the first paint, so the questions never flash before the notice.
@@ -210,6 +212,7 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
       // A hidden tab always counts. Merely losing focus counts after BLUR_MIN_AWAY_MS.
       if (a.source === 'hidden' || awayMs >= BLUR_MIN_AWAY_MS) {
         push({ type: 'TAB_SWITCH', at: a.since, awayMs, source: a.source });
+        setAwayNotice({ awayMs, source: a.source });
         void flush();
       }
     };
@@ -344,6 +347,7 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
       if (!document.documentElement.requestFullscreen) throw new Error('Full-screen is not supported');
       await document.documentElement.requestFullscreen();
       wasFullscreen.current = true;
+      setAwayNotice(null);
       setCovered(false);
     } catch {
       // The browser refused. The candidate may continue; this is recorded once and shown to the admin.
@@ -358,7 +362,7 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
   return (
     <ProctorContext.Provider value={api}>
       {/* The exam stays mounted behind the notice, so its timer keeps running. */}
-      <div inert={covered || ended} aria-hidden={covered || ended || undefined}>
+      <div inert={covered || ended || awayNotice !== null} aria-hidden={covered || ended || awayNotice !== null || undefined}>
         {children}
       </div>
 
@@ -377,7 +381,7 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
           >
             Tab switches: {used} of {maxTabSwitches}
           </span>}
-          {warning && (
+          {warning && !awayNotice && (
             <div role="alert" className="pointer-events-auto flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 shadow-md">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p className="flex-1">{warning}</p>
@@ -411,18 +415,48 @@ function ActiveGate({ roundType, maxTabSwitches, initialUsed, blockPaste, childr
           </Card>
         </div>
       )}
+      {awayNotice && !covered && !ended && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center overflow-y-auto bg-black/50 p-6" role="alertdialog" aria-modal="true" aria-labelledby="proctor-away-title" aria-describedby="proctor-away-desc">
+          <Card className="w-full max-w-md border-amber-300">
+            <CardHeader>
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-amber-600" aria-hidden />
+                <CardTitle id="proctor-away-title">You left the exam window</CardTitle>
+              </div>
+              <CardDescription id="proctor-away-desc">
+                You were away from this exam for {formatAway(awayNotice.awayMs)}. This was recorded and the hiring team can see it.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm">
+              {maxTabSwitches > 0 && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">
+                  Tab switches used: <strong>{used} of {maxTabSwitches}</strong>. After {maxTabSwitches} your round is submitted automatically.
+                  {warning && <span className="mt-1 block">{warning}</span>}
+                </p>
+              )}
+              <p className="text-muted-foreground">Please stay on this page until you submit. Your timer is still running.</p>
+              <Button autoFocus className="w-full" onClick={() => { setAwayNotice(null); setWarning(null); }}>
+                I understand, continue
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       {covered && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-background p-6" role="dialog" aria-modal="true" aria-labelledby="proctor-title">
           <Card className="w-full max-w-lg">
             <CardHeader>
-              <CardTitle id="proctor-title">{reason === 'left' ? 'You left full-screen' : 'This round is proctored'}</CardTitle>
+              <CardTitle id="proctor-title">{reason === 'left' ? 'Please return to full-screen' : 'This round is proctored'}</CardTitle>
               <CardDescription>
                 {reason === 'left'
-                  ? 'This was recorded. Return to full-screen to continue. Your timer is still running.'
+                  ? 'You left full-screen. This was recorded and the hiring team can see it. Return to full-screen to continue. Your timer is still running.'
                   : 'Your timer is already running. Enter full-screen to see the questions.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 text-sm">
+              {awayNotice && (
+                <p className="rounded-md border border-amber-300 bg-amber-50 p-3 text-amber-900">You also switched away from this window for {formatAway(awayNotice.awayMs)}. This was recorded.</p>
+              )}
               <div>
                 <p className="font-medium">While this round is open, the hiring team can see:</p>
                 <ul className="mt-2 list-disc space-y-1 pl-5 text-muted-foreground">
