@@ -147,6 +147,12 @@ export function PipelineEditor({ jobId, initialSteps, locked }: { jobId: string;
                       {PROCTORING_LEVELS.map((p) => <option key={p} value={p}>{PROCTOR_LABEL[p]}</option>)}
                     </Select>
                   </Field>
+                  <div className="flex items-end pb-2">
+                    <label className="flex items-center gap-1.5 text-sm" title="Off: a candidate whose camera does not work can continue without it, and you see that on their timeline.">
+                      <input type="checkbox" checked={s.cameraRequired} disabled={off || s.proctoringLevel === 'OFF'} onChange={(e) => patch(i, { cameraRequired: e.target.checked })} />
+                      Camera required
+                    </label>
+                  </div>
                   <Field label="Tab-switch limit (0 = none)">
                     <Input type="number" min={0} max={20} value={s.maxTabSwitches} disabled={off || s.proctoringLevel === 'OFF'} onChange={(e) => patch(i, { maxTabSwitches: num(e.target.value) })} />
                   </Field>

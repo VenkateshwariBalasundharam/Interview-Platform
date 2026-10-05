@@ -46,6 +46,8 @@ export const pipelineStepSchema = z.object({
   difficulty: z.enum(DIFFICULTIES),
   cutoffMode: z.enum(CUTOFF_MODES),
   proctoringLevel: z.enum(PROCTORING_LEVELS),
+  /** false = a candidate without a working camera may continue without it (and the admin sees that). Only matters when face monitoring is on. */
+  cameraRequired: z.boolean().default(true),
   /** Tab switches allowed before the round ends automatically. 0 = no limit. */
   maxTabSwitches: z.number().int().min(0).max(20).default(0),
   /** Block pasting into the exam. Attempts are still recorded for the admin. */
@@ -165,6 +167,7 @@ export function defaultStep(roundType: RoundType, position: number): PipelineSte
     difficulty: 'MEDIUM',
     cutoffMode: roundType === 'MANAGER' ? 'FLAG_FOR_REVIEW' : 'DISQUALIFY',
     proctoringLevel: roundType === 'MANAGER' ? 'OFF' : 'PRESENCE',
+    cameraRequired: true,
     maxTabSwitches: roundType === 'MANAGER' ? 0 : DEFAULT_MAX_TAB_SWITCHES,
     blockPaste: roundType !== 'MANAGER',
     required: true,

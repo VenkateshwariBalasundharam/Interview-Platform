@@ -86,6 +86,7 @@ enum ProctorEventType {
   MULTIPLE_FACES
   LOOKING_AWAY
   IDENTITY_MISMATCH
+  CAMERA_UNAVAILABLE
 }
 
 // ───────────────────────── Admin ─────────────────────────
@@ -139,6 +140,8 @@ model RoundConfig {
   difficulty      Difficulty      @default(MEDIUM)
   cutoffMode      CutoffMode      @default(DISQUALIFY)
   proctoringLevel ProctoringLevel @default(OFF)
+  /// When false, a candidate with no working camera may continue without it. The admin sees that they did.
+  cameraRequired  Boolean         @default(true)
   /// Tab switches allowed before the round is submitted automatically. 0 means no limit.
   maxTabSwitches  Int             @default(0)
   /// Pasting into the exam is blocked (and the attempt is logged). Only applies when proctoring is on.

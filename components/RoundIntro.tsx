@@ -5,6 +5,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FaceSetup } from '@/components/proctoring/FaceMonitor';
+import { cameraSkipKey, type CameraSkipReason } from '@/lib/face-client-core';
 import { apiFetch } from '@/lib/api-client';
 import type { RoundInfo } from '@/lib/round-engine';
 
@@ -15,7 +16,21 @@ export function RoundIntro({ round, canStart, blockedReason }: { round: RoundInf
   // Camera consent and face registration happen here, before the timer starts, so they never use up exam time.
   const needsCamera = round.faceLevel !== 'OFF';
   const [cameraOk, setCameraOk] = useState(!needsCamera);
+  const [cameraSkipped, setCameraSkipped] = useState(false);
   const onCameraReady = useCallback(() => setCameraOk(true), []);
+  // Only offered when the job's round does not require a camera. The exam page reads this and records it for the hiring team.
+  const onCameraSkip = useCallback(
+    (reason: CameraSkipReason) => {
+      try {
+        sessionStorage.setItem(cameraSkipKey(round.roundType), reason);
+      } catch {
+        /* storage blocked: the exam screen will simply offer the same choice again */
+      }
+      setCameraSkipped(true);
+      setCameraOk(true);
+    },
+    [round.roundType],
+  );
 
   async function start() {
     setStarting(true);
@@ -58,9 +73,19 @@ export function RoundIntro({ round, canStart, blockedReason }: { round: RoundInf
             {needsCamera && (
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  This round uses your camera.{round.faceLevel === 'IDENTITY' ? ' You will register your face once before you start.' : ''} Finish the camera check below, then start the round.
+                  This round uses your camera.{round.faceLevel === 'IDENTITY' ? ' You will register your face once before you start.' : ''} {round.cameraRequired ? 'Finish the camera check below, then start the round.' : 'Finish the camera check below, or continue without a camera if yours does not work.'}
                 </p>
-                <FaceSetup level={round.faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'} mode="preflight" onReady={onCameraReady} />
+                {cameraSkipped ? (
+                  <Alert tone="info">You are continuing without a camera. The hiring team will see that. You can start the round.</Alert>
+                ) : (
+                  <FaceSetup
+                    level={round.faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'}
+                    mode="preflight"
+                    onReady={onCameraReady}
+                    optional={!round.cameraRequired}
+                    onSkip={onCameraSkip}
+                  />
+                )}
               </div>
             )}
             <Button onClick={start} disabled={starting || !cameraOk}>

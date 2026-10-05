@@ -3,7 +3,7 @@
 import { z } from 'zod';
 
 /** The only event types a browser may send. Face events (NO_FACE and so on) are refused. */
-export const CLIENT_EVENT_TYPES = ['TAB_SWITCH', 'PASTE', 'FULLSCREEN_EXIT'] as const;
+export const CLIENT_EVENT_TYPES = ['TAB_SWITCH', 'PASTE', 'FULLSCREEN_EXIT', 'CAMERA_UNAVAILABLE'] as const;
 export type ClientEventType = (typeof CLIENT_EVENT_TYPES)[number];
 
 export const MAX_EVENTS_PER_REQUEST = 20;
@@ -40,8 +40,16 @@ const fullscreenExit = z.object({
   refused: z.literal(true).optional(),
 });
 
+/** The candidate chose to continue without a camera (only offered when the round does not require one). */
+export const CAMERA_SKIP_REASONS = ['denied', 'not_found', 'in_use', 'other', 'declined'] as const;
+const cameraUnavailable = z.object({
+  type: z.literal('CAMERA_UNAVAILABLE'),
+  msAgo,
+  reason: z.enum(CAMERA_SKIP_REASONS),
+});
+
 export const proctorBatchSchema = z.object({
-  events: z.array(z.discriminatedUnion('type', [tabSwitch, paste, fullscreenExit])).min(1).max(MAX_EVENTS_PER_REQUEST),
+  events: z.array(z.discriminatedUnion('type', [tabSwitch, paste, fullscreenExit, cameraUnavailable])).min(1).max(MAX_EVENTS_PER_REQUEST),
 });
 export type ProctorBatch = z.infer<typeof proctorBatchSchema>;
 export type ClientEvent = ProctorBatch['events'][number];
@@ -126,6 +134,8 @@ export function toStoredEvent(event: ClientEvent, now: Date, roundStart: Date): 
       };
     case 'FULLSCREEN_EXIT':
       return { type: event.type, occurredAt, meta: event.refused ? { refused: true } : null };
+    case 'CAMERA_UNAVAILABLE':
+      return { type: event.type, occurredAt, meta: { reason: event.reason } };
   }
 }
 
@@ -220,6 +230,14 @@ const PASTE_TARGET_TEXT: Record<string, string> = {
   other: 'somewhere else on the page',
 };
 
+const CAMERA_SKIP_TEXT: Record<string, string> = {
+  denied: 'camera permission was blocked',
+  not_found: 'no camera was found',
+  in_use: 'the camera was in use by another app',
+  declined: 'they chose not to use the camera',
+  other: 'the camera could not be started',
+};
+
 export function describeEvent(type: string, meta: unknown): { text: string; tone: EventTone } {
   switch (type) {
     case 'TAB_SWITCH': {
@@ -246,6 +264,10 @@ export function describeEvent(type: string, meta: unknown): { text: string; tone
       return readFlag(meta, 'refused')
         ? { text: 'The browser refused full-screen; the candidate continued without it', tone: 'warn' }
         : { text: 'Left full-screen', tone: 'warn' };
+    case 'CAMERA_UNAVAILABLE': {
+      const why = CAMERA_SKIP_TEXT[readString(meta, 'reason') ?? ''] ?? CAMERA_SKIP_TEXT.other;
+      return { text: `The candidate continued without a camera (${why}). No face checks ran for this round`, tone: 'warn' };
+    }
     case 'NO_FACE':
       return { text: 'No face was visible on the camera', tone: 'warn' };
     case 'MULTIPLE_FACES': {

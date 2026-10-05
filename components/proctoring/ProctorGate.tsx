@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { BLUR_MIN_AWAY_MS, MAX_EVENTS_PER_REQUEST, formatAway } from '@/lib/proctoring-core';
 import { FaceMonitor, FaceSetup, type FaceLevel } from '@/components/proctoring/FaceMonitor';
+import { cameraSkipKey, parseSkipReason, type CameraSkipReason } from '@/lib/face-client-core';
 
 const SEND_EVERY_MS = 5000;
 /** Events kept in memory while the network is down. The oldest are dropped past this. */
@@ -17,7 +18,8 @@ const FLUSH_WAIT_MS = 3000;
 type QueuedEvent =
   | { type: 'TAB_SWITCH'; at: number; awayMs: number; source: 'hidden' | 'blur' }
   | { type: 'PASTE'; at: number; chars: number; target: 'answer' | 'editor' | 'other'; blocked?: true; via?: 'paste' | 'drop' }
-  | { type: 'FULLSCREEN_EXIT'; at: number; refused?: true };
+  | { type: 'FULLSCREEN_EXIT'; at: number; refused?: true }
+  | { type: 'CAMERA_UNAVAILABLE'; at: number; reason: CameraSkipReason };
 
 /** The browser sends "how long ago" instead of a clock time, so a wrong clock on the candidate's computer changes nothing. */
 function toWire(event: QueuedEvent, sentAt: number) {
@@ -55,6 +57,7 @@ export function useProctor(): ProctorApi {
 export function ProctorGate({
   enabled,
   faceLevel = 'OFF',
+  cameraRequired = true,
   roundType,
   maxTabSwitches = 0,
   tabSwitchesUsed = 0,
@@ -64,6 +67,8 @@ export function ProctorGate({
   enabled: boolean;
   /** Camera checks. Anything but OFF adds the camera step and the live face monitor. */
   faceLevel?: FaceLevel;
+  /** false = a candidate whose camera does not work may continue without it. The hiring team sees that they did. */
+  cameraRequired?: boolean;
   roundType: string;
   /** Tab switches allowed before the round is submitted automatically. 0 means no limit. */
   maxTabSwitches?: number;
@@ -75,7 +80,7 @@ export function ProctorGate({
 }) {
   if (!enabled) return <>{children}</>;
   return (
-    <ActiveGate roundType={roundType} faceLevel={faceLevel} maxTabSwitches={maxTabSwitches} initialUsed={tabSwitchesUsed} blockPaste={blockPaste}>
+    <ActiveGate roundType={roundType} faceLevel={faceLevel} cameraRequired={cameraRequired} maxTabSwitches={maxTabSwitches} initialUsed={tabSwitchesUsed} blockPaste={blockPaste}>
       {children}
     </ActiveGate>
   );
@@ -87,7 +92,7 @@ interface ServerReply {
   ended?: boolean;
 }
 
-function ActiveGate({ roundType, faceLevel, maxTabSwitches, initialUsed, blockPaste, children }: { roundType: string; faceLevel: FaceLevel; maxTabSwitches: number; initialUsed: number; blockPaste: boolean; children: ReactNode }) {
+function ActiveGate({ roundType, faceLevel, cameraRequired, maxTabSwitches, initialUsed, blockPaste, children }: { roundType: string; faceLevel: FaceLevel; cameraRequired: boolean; maxTabSwitches: number; initialUsed: number; blockPaste: boolean; children: ReactNode }) {
   const [used, setUsed] = useState(initialUsed);
   const [warning, setWarning] = useState<string | null>(null);
   const [ended, setEnded] = useState(false);
@@ -102,8 +107,10 @@ function ActiveGate({ roundType, faceLevel, maxTabSwitches, initialUsed, blockPa
   const [busy, setBusy] = useState(false);
   // Camera: null until the camera is on. With face checks Off there is no camera step.
   const [camera, setCamera] = useState<{ stream: MediaStream; level: Exclude<FaceLevel, 'OFF'> } | null>(null);
+  // The candidate chose to go on without a camera (only possible when the round does not require one).
+  const [cameraSkipped, setCameraSkipped] = useState(false);
   const needsCamera = faceLevel !== 'OFF';
-  const cameraPending = needsCamera && !camera;
+  const cameraPending = needsCamera && !camera && !cameraSkipped;
 
   const queue = useRef<QueuedEvent[]>([]);
   const chain = useRef<Promise<void>>(Promise.resolve());
@@ -174,6 +181,38 @@ function ActiveGate({ roundType, faceLevel, maxTabSwitches, initialUsed, blockPa
     queue.current.push(event);
     if (queue.current.length > MAX_QUEUE) queue.current.splice(0, queue.current.length - MAX_QUEUE);
   }, []);
+
+  /** Records "continued without a camera" for the admin and lets the exam open. Never called when the round requires a camera. */
+  const skipCamera = useCallback(
+    (reason: CameraSkipReason) => {
+      if (cameraRequired) return;
+      setCameraSkipped(true);
+      push({ type: 'CAMERA_UNAVAILABLE', at: Date.now(), reason });
+      void flush();
+      try {
+        sessionStorage.setItem(`${cameraSkipKey(roundType)}:sent`, '1');
+      } catch {
+        /* a refresh may record it twice; harmless */
+      }
+    },
+    [cameraRequired, flush, push, roundType],
+  );
+
+  // A choice made on the round intro carries over, so the candidate is not asked twice.
+  useEffect(() => {
+    if (cameraRequired) return;
+    try {
+      const reason = parseSkipReason(sessionStorage.getItem(cameraSkipKey(roundType)));
+      if (!reason) return;
+      if (sessionStorage.getItem(`${cameraSkipKey(roundType)}:sent`) === '1') {
+        setCameraSkipped(true);
+        return;
+      }
+      skipCamera(reason);
+    } catch {
+      /* storage blocked: the camera step is shown as usual */
+    }
+  }, [cameraRequired, roundType, skipCamera]);
 
   /** Records a blocked paste or drop and tells the candidate. Records at most one per 1.5 s so holding Ctrl+V cannot flood the log. */
   const reportBlocked = useCallback(
@@ -456,6 +495,8 @@ function ActiveGate({ roundType, faceLevel, maxTabSwitches, initialUsed, blockPa
           <FaceSetup
             level={faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'}
             mode="live"
+            optional={!cameraRequired}
+            onSkip={skipCamera}
             onReady={({ stream, level }) => {
               if (stream) setCamera({ stream, level });
             }}

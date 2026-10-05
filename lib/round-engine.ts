@@ -312,6 +312,8 @@ export interface RoundInfo {
   proctored: boolean;
   /** Camera checks for this round: Off, Presence (faces seen) or Identity (also matched to the registered face). */
   faceLevel: 'OFF' | 'PRESENCE' | 'IDENTITY';
+  /** false = a candidate whose camera does not work may continue without it; the hiring team sees that. */
+  cameraRequired: boolean;
   /** Tab switches allowed before the round is submitted automatically. 0 means no limit. */
   maxTabSwitches: number;
   /** Pasting is blocked in this round (only ever true when the round is proctored). */

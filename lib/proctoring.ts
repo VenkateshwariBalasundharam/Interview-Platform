@@ -73,7 +73,7 @@ export async function recordProctorEvents(
 
   const config = await prisma.roundConfig.findUnique({
     where: { jobId_roundType: { jobId: candidate.jobId, roundType } },
-    select: { proctoringLevel: true, maxTabSwitches: true },
+    select: { proctoringLevel: true, maxTabSwitches: true, cameraRequired: true },
   });
   if (!config || config.proctoringLevel === 'OFF') return { recorded: 0, dropped: batch.events.length };
   const max = config.maxTabSwitches;
@@ -92,6 +92,12 @@ export async function recordProctorEvents(
   // The per-attempt cap never hides a tab switch while a limit is on, or the limit could be dodged by filling the cap first.
   let room = Math.max(0, MAX_EVENTS_PER_ATTEMPT - (await prisma.proctorEvent.count({ where: { attemptId: attempt.id } })));
   const accepted = batch.events.filter((event) => {
+    // "Continued without a camera" is only true when the round allows it. A round that requires the camera ignores the claim.
+    if (event.type === 'CAMERA_UNAVAILABLE') {
+      if (config.cameraRequired || room <= 0) return false;
+      room -= 1;
+      return true;
+    }
     if (event.type === 'TAB_SWITCH' && max > 0) return true;
     if (room <= 0) return false;
     room -= 1;

@@ -19,6 +19,8 @@ import {
   ENROLL_SAMPLE_GAP_MS,
   enrollmentVerdict,
   isFinalStatus,
+  skipReasonFor,
+  type CameraSkipReason,
   type FaceReading,
 } from '@/lib/face-client-core';
 import {
@@ -55,10 +57,16 @@ export function FaceSetup({
   level,
   mode,
   onReady,
+  optional = false,
+  onSkip,
 }: {
   level: Exclude<FaceLevel, 'OFF'>;
   mode: 'preflight' | 'live';
   onReady: (result: { stream: MediaStream | null; level: Exclude<FaceLevel, 'OFF'> }) => void;
+  /** The round does not require a camera: the candidate may continue without one (see onSkip). */
+  optional?: boolean;
+  /** Called when the candidate chooses to continue without a camera. Only offered when `optional` is true. */
+  onSkip?: (reason: CameraSkipReason) => void;
 }) {
   const [phase, setPhase] = useState<Phase>('checking');
   const [status, setStatus] = useState<FaceStatus | null>(null);
@@ -158,6 +166,12 @@ export function FaceSetup({
     }
   }, [phase]);
 
+  /** Camera off, nothing running: release anything half-started and hand the choice to the parent. */
+  function skip(reason: CameraSkipReason) {
+    release();
+    onSkip?.(reason);
+  }
+
   async function agree() {
     if (!status) return;
     setBusy(true);
@@ -256,6 +270,12 @@ export function FaceSetup({
               {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : <Camera className="h-4 w-4" aria-hidden />}
               Agree and turn on camera
             </Button>
+            {optional && onSkip && (
+              <Button className="w-full" variant="ghost" disabled={busy} onClick={() => skip('declined')}>
+                Continue without camera
+              </Button>
+            )}
+            {optional && onSkip && <p className="text-xs text-muted-foreground">This round does not require a camera. If you continue without one, the hiring team will see that.</p>}
           </>
         )}
 
@@ -287,6 +307,15 @@ export function FaceSetup({
           >
             Try again
           </Button>
+        )}
+
+        {phase === 'error' && optional && onSkip && (
+          <div className="space-y-2">
+            <Button className="w-full" variant={errorKind === 'denied' ? 'outline' : 'default'} onClick={() => skip(skipReasonFor(errorKind))}>
+              Continue without camera
+            </Button>
+            <p className="text-xs text-muted-foreground">This round does not require a camera. If you continue without one, the hiring team will see that.</p>
+          </div>
         )}
       </CardContent>
     </Card>

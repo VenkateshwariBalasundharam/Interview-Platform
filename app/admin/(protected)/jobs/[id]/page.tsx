@@ -28,6 +28,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
     difficulty: r.difficulty,
     cutoffMode: r.cutoffMode,
     proctoringLevel: r.proctoringLevel,
+    cameraRequired: r.cameraRequired,
     maxTabSwitches: r.maxTabSwitches,
     blockPaste: r.blockPaste,
     required: r.required,

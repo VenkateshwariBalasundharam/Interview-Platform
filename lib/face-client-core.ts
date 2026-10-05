@@ -137,6 +137,33 @@ export function buildReading(
   return reading;
 }
 
+/** Why a candidate went on without a camera. Mirrors CAMERA_SKIP_REASONS in lib/proctoring-core.ts. */
+export type CameraSkipReason = 'denied' | 'not_found' | 'in_use' | 'other' | 'declined';
+
+/** Turns a camera error kind (lib/face-client.ts) into the reason that is recorded for the admin. */
+export function skipReasonFor(kind: string | null): CameraSkipReason {
+  switch (kind) {
+    case 'denied':
+      return 'denied';
+    case 'no_camera':
+      return 'not_found';
+    case 'in_use':
+      return 'in_use';
+    default:
+      return 'other';
+  }
+}
+
+/** The "continue without camera" choice made on the round intro is remembered for this tab, so the exam does not ask again. */
+export function cameraSkipKey(roundType: string): string {
+  return `camera-skip:${roundType}`;
+}
+
+const SKIP_REASONS: readonly CameraSkipReason[] = ['denied', 'not_found', 'in_use', 'other', 'declined'];
+export function parseSkipReason(value: string | null): CameraSkipReason | null {
+  return value !== null && (SKIP_REASONS as readonly string[]).includes(value) ? (value as CameraSkipReason) : null;
+}
+
 /** Server answers after which readings must stop for good (round over, signed out, consent missing). */
 export function isFinalStatus(status: number): boolean {
   return status === 401 || status === 403 || status === 404 || status === 409;

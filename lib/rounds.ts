@@ -61,7 +61,7 @@ export function parseRoundType(value: string): RoundType {
 
 type RoundRow = Awaited<ReturnType<typeof prisma.roundConfig.findMany>>[number];
 
-function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinutes' | 'questionCount' | 'humanScored' | 'proctoringLevel' | 'maxTabSwitches' | 'blockPaste'>): RoundInfo {
+function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinutes' | 'questionCount' | 'humanScored' | 'proctoringLevel' | 'cameraRequired' | 'maxTabSwitches' | 'blockPaste'>): RoundInfo {
   return {
     roundType: r.roundType,
     label: ROUND_LIBRARY[r.roundType].label,
@@ -72,6 +72,7 @@ function toRoundInfo(r: Pick<RoundRow, 'roundType' | 'position' | 'durationMinut
     aiGraded: isAiGradedRound(r.roundType),
     proctored: r.proctoringLevel !== 'OFF',
     faceLevel: r.proctoringLevel,
+    cameraRequired: r.cameraRequired,
     maxTabSwitches: r.proctoringLevel !== 'OFF' ? r.maxTabSwitches : 0,
     blockPaste: r.proctoringLevel !== 'OFF' && r.blockPaste,
   };
