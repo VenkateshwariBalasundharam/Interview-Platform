@@ -5,6 +5,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useProctor } from '@/components/proctoring/ProctorGate';
+import { VoiceInputButton } from '@/components/VoiceInputButton';
 import { apiFetch } from '@/lib/api-client';
 import type { CandidateQuestion, ExamView } from '@/lib/round-engine';
 
@@ -198,11 +199,14 @@ export function RoundExam({ roundType, exam }: { roundType: string; exam: ExamVi
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring"
                   aria-label={`Answer to question ${i + 1}`}
                 />
-                {q.maxChars && (
-                  <div className="text-right text-xs text-muted-foreground">
-                    {(texts[q.id] ?? '').length} / {q.maxChars}
-                  </div>
-                )}
+                <div className="flex items-start justify-between gap-3">
+                  <VoiceInputButton value={texts[q.id] ?? ''} maxChars={q.maxChars} onChange={(next) => type(q, next)} label={`question ${i + 1}`} />
+                  {q.maxChars && (
+                    <div className="shrink-0 text-right text-xs text-muted-foreground">
+                      {(texts[q.id] ?? '').length} / {q.maxChars}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </CardContent>

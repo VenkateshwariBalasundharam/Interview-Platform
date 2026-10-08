@@ -78,6 +78,21 @@ enum QuestionSetStatus {
   LOCKED
 }
 
+enum EmailKind {
+  INVITE
+  SELECTED_NEXT_ROUND
+  RESULT_READY
+  REMINDER
+}
+
+enum EmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  CANCELLED
+}
+
 enum ProctorEventType {
   TAB_SWITCH
   PASTE
@@ -178,16 +193,17 @@ model Candidate {
   reviewApprovedAt DateTime?
   createdAt        DateTime        @default(now())
 
-  job           Job               @relation(fields: [jobId], references: [id])
-  attempts      Attempt[]
-  proctorEvents ProctorEvent[]
-  snapshots     ProctorSnapshot[]
-  faceReference FaceReference?
-  consents      ConsentRecord[]
-  humanScores   HumanScore[]
-  result        Result?
-  fitSummary    FitSummary?
-  questionSets  QuestionSet[]
+  job                Job                 @relation(fields: [jobId], references: [id])
+  attempts           Attempt[]
+  proctorEvents      ProctorEvent[]
+  snapshots          ProctorSnapshot[]
+  faceReference      FaceReference?
+  consents           ConsentRecord[]
+  humanScores        HumanScore[]
+  result             Result?
+  fitSummary         FitSummary?
+  questionSets       QuestionSet[]
+  emailNotifications EmailNotification[]
 
   @@unique([jobId, email])
   @@index([jobId])
@@ -419,6 +435,35 @@ model FitSummary {
   generatedAt DateTime @default(now()) @updatedAt
 
   candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+}
+
+// ───────────────────────── Email ─────────────────────────
+
+/// Outbox: one row per email to send. Rows are written when something happens (import, approval, decision, reminder
+/// due) and delivered later by the background sweep, so a mail server outage never breaks the admin's action and a
+/// failed send is retried. The email is written at send time from the candidate's current details.
+model EmailNotification {
+  id            String      @id @default(cuid())
+  candidateId   String
+  kind          EmailKind
+  /// One key per real-world event. Enqueueing the same key twice does nothing, so a double click never emails twice.
+  dedupeKey     String      @unique
+  status        EmailStatus @default(PENDING)
+  attempts      Int         @default(0)
+  nextAttemptAt DateTime    @default(now())
+  /// Set while a sender holds the row; a row held for too long is released again (the sender crashed).
+  lockedAt      DateTime?
+  sentAt        DateTime?
+  /// The address it actually went to.
+  sentTo        String?
+  /// Why the last attempt failed, or why the email was cancelled. Never holds a date of birth.
+  lastError     String?
+  createdAt     DateTime    @default(now())
+
+  candidate Candidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([status, nextAttemptAt])
+  @@index([candidateId, kind])
 }
 
 // ───────────────────────── Audit & rate limiting ─────────────────────────

@@ -943,3 +943,40 @@ Changed: `prisma/schema.prisma` (`SweepRun`), `lib/env.ts` (`CRON_SECRET`), `app
 - The 90 s wait before grading a freshly submitted round is so the sweep does not race the candidate's own grading screen; it only delays rounds nobody is waiting on.
 - The heartbeat records every run for 7 days (about 1,440 small rows a day at one run a minute).
 - Not run against a real database or scheduler in the environment that built this. The rules are covered by `tests/sweeper.test.ts`, and the run order, limits and failure handling by `tests/sweeper-run.test.ts` (with the database and grader replaced by fakes). Use the checklist above on your machine.
+
+
+## Candidate emails
+
+Candidates no longer need their Candidate ID passed on by hand. The platform emails them:
+
+| Email | Sent when | Contains |
+|---|---|---|
+| **Invitation** | After a bulk import (and when an admin presses *Email invite* / *Resend invite*) | Candidate ID, a login link with the ID filled in, how the password works, the rounds, setup tips |
+| **Reminder** | Invited candidate has not started any round after `REMINDER_AFTER_HOURS`, then every `REMINDER_EVERY_HOURS`, at most `REMINDER_MAX` times | Same as the invitation |
+| **Selected for the next round** | An admin approves a flagged candidate (*Review → Approve*) | Which round is next, a link to continue |
+| **Result is ready** | An admin confirms the final decision (*Shortlist* or *Reject*) | A link to sign in. It never says which way the decision went |
+
+**The password is never emailed.** The platform only stores a hash of the date of birth, and a password in an inbox lives for years. The email says "your date of birth as DDMMYYYY" and the login page does the rest.
+
+### How it works
+
+Emails are written to an outbox table (`EmailNotification`) and sent by the background sweep (`npm run sweep:watch`, or your scheduler hitting `/api/cron/sweep`), so a mail outage never fails an import or an approval. Each email has a unique key, so a double click or two admins sending the same email results in one email. Failed sends are retried after 1, 5, 15 and 60 minutes (5 tries); a mailbox the server rejects is not retried. A reminder is cancelled if the candidate starts before it goes out, and a "selected" email is cancelled if they were disqualified meanwhile. If the mail server keeps failing, a run stops after 3 failures instead of using up everyone's attempts.
+
+### Setup
+
+1. Add `APP_URL`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `EMAIL_FROM` to `.env` (see `.env.example`). For development use `EMAIL_DRIVER="console"` to see emails in the terminal.
+2. `npx prisma migrate deploy && npx prisma generate`
+3. Keep the background sweep running (`npm run sweep:watch` locally; see *Background sweep*). Without it emails wait in the outbox, but **Candidates → Send now** sends them on demand.
+
+Admin → Candidates now shows an **Email** panel (waiting / sent in 24 h / failed, with the reason for each failure), per-candidate email status, and **Email invites to those not yet invited** for people imported while email was off. Emails are only queued once email is set up, so switching it on never sends a pile of old messages.
+
+### Manual checklist
+
+1. With no email settings, import a file: the result says no emails were queued and why; the Candidates page shows "Candidate emails are off" with what is missing.
+2. Set `EMAIL_DRIVER="console"`, `APP_URL=http://localhost:3100`, restart. Import two candidates: "2 invitation emails queued". Press **Send now**: two emails print in the terminal; both rows show *Invite sent*.
+3. Open the link from the terminal: the login page has the Candidate ID filled in and the cursor in the password field.
+4. Press **Resend invite** twice quickly: one email. Wait a minute and press again: a second one.
+5. Make a candidate fail a cutoff round with *flag for review*, then **Approve**: a "next round" email is queued. Reject a flagged candidate: no email.
+6. Decide a result (Shortlist or Reject): one "result is ready" email. Change the decision: no second email.
+7. Set `REMINDER_AFTER_HOURS=1`, wait (or set an old `sentAt` in the database): a reminder is queued by the next sweep; start a round first and it is cancelled instead.
+8. Point `SMTP_HOST` at a wrong host: *Send now* shows "will be retried"; fix it and *Send now* after a minute delivers.

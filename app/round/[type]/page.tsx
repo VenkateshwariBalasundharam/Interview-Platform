@@ -37,7 +37,7 @@ export default async function RoundPage({ params }: { params: Promise<{ type: st
   }
 
   return (
-    <main className="mx-auto max-w-3xl space-y-6 p-8">
+    <main className={`mx-auto space-y-6 p-8 ${state.phase === 'intro' ? 'max-w-5xl' : 'max-w-3xl'}`}>
       {state.phase !== 'exam' && (
         <div className="flex items-center justify-between">
           <BackButton href="/dashboard" label="Back to dashboard" />

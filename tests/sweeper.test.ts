@@ -98,6 +98,15 @@ describe('reporting', () => {
   it('says so when another run holds the lease', () => {
     expect(summarizeReport({ ...emptyReport('admin', now), skipped: 'ALREADY_RUNNING' })).toContain('a moment ago');
   });
+  it('reports candidate emails in plain words and counts them as work', () => {
+    const r = { ...emptyReport('cron', now), emails: { remindersQueued: 0, sent: 3, failed: 1, retrying: 2, cancelled: 0 } };
+    expect(reportHadWork(r)).toBe(true);
+    const text = summarizeReport(r);
+    expect(text).toContain('sent 3 emails');
+    expect(text).toContain('2 emails will be retried');
+    expect(text).toContain('1 email failed');
+    expect(reportHadWork({ ...emptyReport('cron', now), emails: { remindersQueued: 4, sent: 0, failed: 0, retrying: 0, cancelled: 0 } })).toBe(true);
+  });
   it('held rounds alone are not "work" but are still mentioned', () => {
     const r = { ...emptyReport('cron', now), held: 2 };
     expect(reportHadWork(r)).toBe(false);

@@ -6,6 +6,8 @@ import { CODING_POINTS_PER_PROBLEM, verdictLabel } from '@/lib/coding';
 import { prisma } from '@/lib/db';
 import { getEnv } from '@/lib/env';
 import { needsHumanReview } from '@/lib/grading-ai';
+import { enqueueEmailsSafely } from '@/lib/email';
+import { emailKeys } from '@/lib/email-core';
 import { err } from '@/lib/http';
 import { ROUND_LIBRARY, ROUND_TYPES, type RoundType } from '@/lib/pipeline';
 import { readChoice, readText } from '@/lib/answer-input';
@@ -73,7 +75,6 @@ export interface CandidateReview {
   name: string;
   email: string;
   status: 'ACTIVE' | 'DISQUALIFIED' | 'PENDING_REVIEW' | 'COMPLETED';
-  jobId: string;
   jobTitle: string;
   attempts: ReviewAttempt[];
 }
@@ -190,7 +191,6 @@ export async function getCandidateReview(candidateId: string): Promise<Candidate
     name: candidate.name,
     email: candidate.email,
     status: candidate.status,
-    jobId: candidate.jobId,
     jobTitle: candidate.job.title,
     attempts,
   };
@@ -199,8 +199,9 @@ export async function getCandidateReview(candidateId: string): Promise<Candidate
 /** Resolves a flagged candidate: approve lets them continue, reject ends their interview. */
 export async function reviewCandidate(candidateId: string, decision: 'APPROVE' | 'REJECT', adminId: string) {
   const next = decision === 'APPROVE' ? 'ACTIVE' : 'DISQUALIFIED';
+  const approvedAt = new Date();
   // The status is part of the write, so two admins cannot both resolve the same flag.
-  const result = await prisma.candidate.updateMany({ where: { id: candidateId, status: 'PENDING_REVIEW' }, data: { status: next, reviewApprovedAt: decision === 'APPROVE' ? new Date() : null } });
+  const result = await prisma.candidate.updateMany({ where: { id: candidateId, status: 'PENDING_REVIEW' }, data: { status: next, reviewApprovedAt: decision === 'APPROVE' ? approvedAt : null } });
   if (result.count === 0) {
     const exists = await prisma.candidate.findUnique({ where: { id: candidateId }, select: { id: true } });
     if (!exists) throw err.notFound('Candidate not found', 'CANDIDATE_NOT_FOUND');
@@ -214,6 +215,8 @@ export async function reviewCandidate(candidateId: string, decision: 'APPROVE' |
     entityId: candidateId,
   });
   await refreshResultSafely(candidateId);
+  // Approval is the moment a candidate is "selected for the next round". Rejecting sends nothing: the dashboard tells them.
+  if (decision === 'APPROVE') await enqueueEmailsSafely([{ candidateId, kind: 'SELECTED_NEXT_ROUND', dedupeKey: emailKeys.selected(candidateId, approvedAt) }]);
   return { status: next };
 }
 

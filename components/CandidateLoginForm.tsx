@@ -7,9 +7,9 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { apiFetch } from '@/lib/api-client';
 
-export function CandidateLoginForm() {
+export function CandidateLoginForm({ initialCode = '' }: { initialCode?: string }) {
   const router = useRouter();
-  const [candidateCode, setCode] = useState('');
+  const [candidateCode, setCode] = useState(initialCode);
   const [dob, setDob] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -36,7 +36,7 @@ export function CandidateLoginForm() {
       </div>
       <div className="space-y-1.5">
         <Label htmlFor="dob">Password (your date of birth, DDMMYYYY)</Label>
-        <Input id="dob" type="password" inputMode="numeric" autoComplete="current-password" placeholder="DDMMYYYY" value={dob} onChange={(e) => setDob(e.target.value)} required />
+        <Input id="dob" type="password" autoFocus={initialCode !== ''} inputMode="numeric" autoComplete="current-password" placeholder="DDMMYYYY" value={dob} onChange={(e) => setDob(e.target.value)} required />
       </div>
       {error && <Alert tone="error">{error}</Alert>}
       <Button type="submit" className="w-full" disabled={busy}>

@@ -4,7 +4,6 @@ import { useRouter } from 'next/navigation';
 import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { JobPicker } from '@/components/JobPicker';
 import { Label } from '@/components/ui/label';
 import { apiFetch } from '@/lib/api-client';
 
@@ -13,21 +12,16 @@ export interface EditableCandidate {
   candidateCode: string;
   name: string;
   email: string;
-  /** The job the candidate is registered for. Needed (with `jobs`) to show the job role picker. */
-  jobId?: string;
-  /** True once any round has been started: the job can no longer be changed. */
-  hasStarted?: boolean;
 }
 
-/** An Edit button that opens a form for the candidate's name, email, job role, date of birth (password) and login lock. */
-export function CandidateEditButton({ candidate, jobs, size = 'sm', label = 'Edit' }: { candidate: EditableCandidate; jobs?: { id: string; title: string }[]; size?: 'sm' | 'default'; label?: string }) {
+/** An Edit button that opens a form for the candidate's name, email, date of birth (password) and login lock. */
+export function CandidateEditButton({ candidate, size = 'sm', label = 'Edit' }: { candidate: EditableCandidate; size?: 'sm' | 'default'; label?: string }) {
   const router = useRouter();
   const titleId = useId();
   const nameRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(candidate.name);
   const [email, setEmail] = useState(candidate.email);
-  const [jobId, setJobId] = useState(candidate.jobId ?? '');
   const [dob, setDob] = useState('');
   const [unlock, setUnlock] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,7 +30,6 @@ export function CandidateEditButton({ candidate, jobs, size = 'sm', label = 'Edi
   function openDialog() {
     setName(candidate.name);
     setEmail(candidate.email);
-    setJobId(candidate.jobId ?? '');
     setDob('');
     setUnlock(false);
     setError(null);
@@ -55,16 +48,11 @@ export function CandidateEditButton({ candidate, jobs, size = 'sm', label = 'Edi
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    const patch: { name?: string; email?: string; jobId?: string; dob?: string; unlock?: boolean } = {};
+    const patch: { name?: string; email?: string; dob?: string; unlock?: boolean } = {};
     if (name.trim() !== candidate.name) patch.name = name.trim();
     if (email.trim().toLowerCase() !== candidate.email.toLowerCase()) patch.email = email.trim();
-    if (canEditJob && jobId && jobId !== candidate.jobId) patch.jobId = jobId;
     if (dob) patch.dob = dob;
     if (unlock) patch.unlock = true;
-    if (canEditJob && !jobId) {
-      setError('Pick a job from the list.');
-      return;
-    }
     if (Object.keys(patch).length === 0) {
       setError('Nothing has changed.');
       return;
@@ -83,9 +71,6 @@ export function CandidateEditButton({ candidate, jobs, size = 'sm', label = 'Edi
   }
 
   const today = new Date().toISOString().slice(0, 10);
-  const showJob = Boolean(jobs && candidate.jobId);
-  const canEditJob = showJob && !candidate.hasStarted;
-  const currentJobTitle = jobs?.find((j) => j.id === candidate.jobId)?.title ?? '';
 
   return (
     <>
@@ -107,23 +92,6 @@ export function CandidateEditButton({ candidate, jobs, size = 'sm', label = 'Edi
               <Label htmlFor={`${titleId}-email`}>Email</Label>
               <Input id={`${titleId}-email`} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} required disabled={busy} />
             </div>
-
-            {showJob && (
-              <div className="space-y-1.5">
-                <Label htmlFor={`${titleId}-job`}>Job role</Label>
-                {canEditJob ? (
-                  <>
-                    <JobPicker id={`${titleId}-job`} jobs={jobs ?? []} value={jobId} onChange={setJobId} />
-                    <p className="text-xs text-muted-foreground">Entered the wrong role? Pick the right job. Their personalised questions and job-fit summary are made again for the new job.</p>
-                  </>
-                ) : (
-                  <>
-                    <Input id={`${titleId}-job`} value={currentJobTitle} readOnly disabled />
-                    <p className="text-xs text-muted-foreground">This candidate has already started a round, so the job can’t be changed. To move them, reset their rounds first, or delete and register them again under the right job.</p>
-                  </>
-                )}
-              </div>
-            )}
 
             <div className="space-y-1.5">
               <Label htmlFor={`${titleId}-dob`}>New date of birth (optional)</Label>

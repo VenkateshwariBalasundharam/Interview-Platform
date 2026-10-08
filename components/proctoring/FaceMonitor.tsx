@@ -59,8 +59,11 @@ export function FaceSetup({
   onReady,
   optional = false,
   onSkip,
+  embedded = false,
 }: {
   level: Exclude<FaceLevel, 'OFF'>;
+  /** Drawn inside a parent card (no border or shadow of its own), e.g. beside the microphone check. */
+  embedded?: boolean;
   mode: 'preflight' | 'live';
   onReady: (result: { stream: MediaStream | null; level: Exclude<FaceLevel, 'OFF'> }) => void;
   /** The round does not require a camera: the candidate may continue without one (see onSkip). */
@@ -224,7 +227,7 @@ export function FaceSetup({
   }
 
   if (phase === 'ready' && mode === 'preflight') {
-    return (
+    const done = (
       <Alert tone="success">
         <span className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4" aria-hidden />
@@ -232,10 +235,11 @@ export function FaceSetup({
         </span>
       </Alert>
     );
+    return embedded ? <div className="p-5">{done}</div> : done;
   }
 
   return (
-    <Card className="w-full max-w-lg">
+    <Card className={embedded ? 'w-full max-w-none border-0 bg-transparent shadow-none' : 'w-full max-w-lg'}>
       <CardHeader>
         <div className="flex items-center gap-2">
           <Camera className="h-5 w-5" aria-hidden />

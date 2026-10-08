@@ -29,6 +29,21 @@ const envSchema = z.object({
   FACE_MATCH_THRESHOLD: z.string().optional(),
   // Background sweep: the scheduler calls /api/cron/sweep with `Authorization: Bearer <CRON_SECRET>` (16+ characters). Without it the route stays closed.
   CRON_SECRET: z.string().optional(),
+  // Email (invites, "selected for the next round", "result is ready", reminders). With no mail settings every email feature stays off
+  // and the rest of the app works as before. See lib/email-core.ts for how these are read.
+  APP_URL: z.string().optional(),
+  // Email settings are read and checked leniently by lib/email-core.ts (a bad value turns email off with a reason; it never breaks the app).
+  EMAIL_DRIVER: z.string().optional(),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.string().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+  EMAIL_FROM: z.string().optional(),
+  EMAIL_REPLY_TO: z.string().optional(),
+  EMAIL_REMINDERS: z.string().optional(),
+  REMINDER_AFTER_HOURS: z.string().optional(),
+  REMINDER_EVERY_HOURS: z.string().optional(),
+  REMINDER_MAX: z.string().optional(),
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 });
 

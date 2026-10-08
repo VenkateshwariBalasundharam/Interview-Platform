@@ -12,10 +12,14 @@ const h = vi.hoisted(() => {
     finalizeFails: new Set<string>(),
     gradeResult: {} as Record<string, 'done' | 'pending' | 'busy' | 'throw'>,
     purgeFails: false,
+    remindersFail: false,
+    sendFail: false,
+    reminders: 0,
+    send: { sent: 0, failed: 0, retrying: 0, cancelled: 0, stoppedEarly: false, skipped: null as string | null },
   };
   return {
     state,
-    calls: { finalize: [] as string[], grade: [] as string[], waitingWhere: null as unknown, audit: [] as unknown[], runs: [] as unknown[], leaseKeys: [] as string[] },
+    calls: { finalize: [] as string[], grade: [] as string[], waitingWhere: null as unknown, audit: [] as unknown[], runs: [] as unknown[], leaseKeys: [] as string[], order: [] as string[] },
   };
 });
 
@@ -37,6 +41,18 @@ vi.mock('@/lib/face', () => ({
   purgeExpired: vi.fn(async () => {
     if (h.state.purgeFails) throw new Error('disk gone');
     return { snapshots: 2, faceReferences: 1 };
+  }),
+}));
+vi.mock('@/lib/email', () => ({
+  queueDueReminders: vi.fn(async () => {
+    h.calls.order.push('reminders');
+    if (h.state.remindersFail) throw new Error('db blip');
+    return h.state.reminders;
+  }),
+  sendDueEmails: vi.fn(async () => {
+    h.calls.order.push('send');
+    if (h.state.sendFail) throw new Error('smtp exploded');
+    return h.state.send;
   }),
 }));
 vi.mock('@/lib/rounds', () => ({
@@ -73,13 +89,14 @@ import { runSweep } from '@/lib/sweeper';
 import { BREAKER_LIMIT, MAX_FAILURES_PER_HOUR } from '@/lib/sweeper-core';
 
 beforeEach(() => {
-  Object.assign(h.state, { leaseAllowed: true, housekeepingAllowed: false, overdue: [], waiting: [], failures: {}, gradeResult: {}, purgeFails: false });
+  Object.assign(h.state, { leaseAllowed: true, housekeepingAllowed: false, overdue: [], waiting: [], failures: {}, gradeResult: {}, purgeFails: false, remindersFail: false, sendFail: false, reminders: 0, send: { sent: 0, failed: 0, retrying: 0, cancelled: 0, stoppedEarly: false, skipped: null } });
   h.state.finalizeFails.clear();
   h.calls.finalize.length = 0;
   h.calls.grade.length = 0;
   h.calls.audit.length = 0;
   h.calls.runs.length = 0;
   h.calls.leaseKeys.length = 0;
+  h.calls.order.length = 0;
   h.calls.waitingWhere = null;
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -195,5 +212,50 @@ describe('runSweep', () => {
     expect(h.calls.runs).toHaveLength(2);
     expect(h.calls.audit).toHaveLength(1);
     expect(h.calls.audit[0]).toMatchObject({ action: 'SWEEP_RUN', actorType: 'ADMIN', actorId: 'adm1', meta: { finalized: 1 } });
+  });
+
+  describe('candidate emails', () => {
+    it('queues reminders, then sends, after grading and before housekeeping', async () => {
+      h.state.housekeepingAllowed = true;
+      h.state.waiting = ids('w1');
+      h.state.reminders = 4;
+      h.state.send = { sent: 3, failed: 1, retrying: 2, cancelled: 1, stoppedEarly: false, skipped: null };
+      const r = await runSweep({ trigger: 'cron' });
+      expect(h.calls.order).toEqual(['reminders', 'send']);
+      expect(r.emails).toEqual({ remindersQueued: 4, sent: 3, failed: 1, retrying: 2, cancelled: 1 });
+      expect(r.housekeeping.ran).toBe(true);
+      expect(r.errors).toBe(0);
+    });
+    it('records that email work happened, so the dashboard shows the sweep was busy', async () => {
+      h.state.send = { sent: 2, failed: 0, retrying: 0, cancelled: 0, stoppedEarly: false, skipped: null };
+      await runSweep({ trigger: 'cron' });
+      expect(h.calls.audit).toHaveLength(1);
+      expect(h.calls.audit[0]).toMatchObject({ action: 'SWEEP_RUN', meta: { emailsSent: 2, emailsFailed: 0 } });
+    });
+    it('a reminder problem is an error but sending and housekeeping still run', async () => {
+      h.state.housekeepingAllowed = true;
+      h.state.remindersFail = true;
+      const r = await runSweep({ trigger: 'cron' });
+      expect(r.errors).toBe(1);
+      expect(h.calls.order).toEqual(['reminders', 'send']);
+      expect(r.housekeeping.ran).toBe(true);
+    });
+    it('a mail failure is an error, not a crash, and housekeeping still runs', async () => {
+      h.state.housekeepingAllowed = true;
+      h.state.sendFail = true;
+      const r = await runSweep({ trigger: 'cron' });
+      expect(r.errors).toBe(1);
+      expect(r.housekeeping.ran).toBe(true);
+      expect(h.calls.runs).toHaveLength(1);
+    });
+    it('marks the run as stopped early when the sender stopped early', async () => {
+      h.state.send = { sent: 1, failed: 0, retrying: 3, cancelled: 0, stoppedEarly: true, skipped: null };
+      expect((await runSweep({ trigger: 'cron' })).stoppedEarly).toBe(true);
+    });
+    it('does not touch email when the lease is held by another sweep', async () => {
+      h.state.leaseAllowed = false;
+      await runSweep({ trigger: 'cron' });
+      expect(h.calls.order).toEqual([]);
+    });
   });
 });

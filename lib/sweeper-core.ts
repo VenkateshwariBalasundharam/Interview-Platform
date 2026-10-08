@@ -91,6 +91,8 @@ export interface SweepReport {
   /** The run ran out of time or the AI looked down, so some work was left for the next run. */
   stoppedEarly: boolean;
   housekeeping: { ran: boolean; snapshots: number; faceReferences: number; rateLimits: number; runs: number };
+  /** Candidate emails: reminders newly queued, and what the sender did with the outbox this run. */
+  emails: { remindersQueued: number; sent: number; failed: number; retrying: number; cancelled: number };
 }
 
 export function emptyReport(trigger: SweepTrigger, startedAt: Date): SweepReport {
@@ -106,11 +108,13 @@ export function emptyReport(trigger: SweepTrigger, startedAt: Date): SweepReport
     errors: 0,
     stoppedEarly: false,
     housekeeping: { ran: false, snapshots: 0, faceReferences: 0, rateLimits: 0, runs: 0 },
+    emails: { remindersQueued: 0, sent: 0, failed: 0, retrying: 0, cancelled: 0 },
   };
 }
 
 export function reportHadWork(r: SweepReport): boolean {
-  return r.finalized + r.graded + r.stillPending + r.errors > 0;
+  const e = r.emails;
+  return r.finalized + r.graded + r.stillPending + r.errors + e.remindersQueued + e.sent + e.failed + e.retrying + e.cancelled > 0;
 }
 
 /** One sentence for the admin button and the script log. */
@@ -121,6 +125,9 @@ export function summarizeReport(r: SweepReport): string {
   if (r.graded > 0) parts.push(`finished grading ${r.graded} round${r.graded === 1 ? '' : 's'}`);
   if (r.stillPending > 0) parts.push(`${r.stillPending} round${r.stillPending === 1 ? '' : 's'} still waiting on the AI`);
   if (r.held > 0) parts.push(`${r.held} left for a person (grading failed repeatedly or is busy)`);
+  if (r.emails.sent > 0) parts.push(`sent ${r.emails.sent} email${r.emails.sent === 1 ? '' : 's'}`);
+  if (r.emails.retrying > 0) parts.push(`${r.emails.retrying} email${r.emails.retrying === 1 ? '' : 's'} will be retried`);
+  if (r.emails.failed > 0) parts.push(`${r.emails.failed} email${r.emails.failed === 1 ? '' : 's'} failed (see Candidates)`);
   if (r.errors > 0) parts.push(`${r.errors} error${r.errors === 1 ? '' : 's'}`);
   const base = parts.length === 0 ? 'Nothing needed doing.' : `Done: ${parts.join(', ')}.`;
   return r.stoppedEarly ? `${base} Stopped early; the rest is picked up next run.` : base;

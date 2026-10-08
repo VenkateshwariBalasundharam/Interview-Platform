@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { ArrowRight, Briefcase, CheckCircle2, ClipboardList, FilePlus2, PlayCircle, Sparkles, Users } from 'lucide-react';
+import { AutoRefresh } from '@/components/admin/AutoRefresh';
 import { BackgroundJobsBanner } from '@/components/admin/BackgroundJobsBanner';
 import { Donut } from '@/components/admin/Donut';
 import { StatCard } from '@/components/admin/StatCard';
@@ -64,6 +65,7 @@ export default async function AdminHome() {
   return (
     <>
       <BackgroundJobsBanner />
+      <AutoRefresh seconds={15} />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard icon={Briefcase} tone="blue" label="Jobs" value={t.jobs} />

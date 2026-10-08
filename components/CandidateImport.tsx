@@ -131,6 +131,14 @@ export function CandidateImport({ jobs, defaultJobId }: { jobs: { id: string; ti
               : `${result.created.length} candidate(s) created${result.createdJob ? ` under the new job “${result.createdJob.title}”` : ''}; ${result.rejected.length} rejected.`}
           </Alert>
 
+          {!result.dryRun && result.created.length > 0 && result.emails && (
+            <Alert tone={result.emails.disabledReason ? 'warn' : 'success'}>
+              {result.emails.disabledReason
+                ? `No invitation emails were queued. ${result.emails.disabledReason} You can share the IDs below by hand.`
+                : `${result.emails.queued} invitation email(s) queued with each candidate's login link. They go out within a minute. The password is never in the email: candidates use their date of birth.`}
+            </Alert>
+          )}
+
           {result.created.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">

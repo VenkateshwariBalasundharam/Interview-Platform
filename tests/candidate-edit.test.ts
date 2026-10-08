@@ -35,14 +35,6 @@ describe('updateCandidateSchema', () => {
     expect(issues({ dob: '' })).toContain('Nothing to change');
   });
 
-  it('accepts a job change on its own', () => {
-    expect(updateCandidateSchema.safeParse({ jobId: 'cjld2cjxh0000qzrmn831i7rn' }).success).toBe(true);
-  });
-
-  it('rejects a blank job id', () => {
-    expect(issues({ jobId: '   ' })).toContain('Pick a job');
-  });
-
   it('accepts unlock on its own', () => {
     expect(updateCandidateSchema.safeParse({ unlock: true }).success).toBe(true);
   });

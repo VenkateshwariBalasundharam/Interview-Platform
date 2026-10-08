@@ -13,7 +13,6 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCandidateReview, type ReviewAttempt } from '@/lib/attempt-review';
 import { getFitSummaryState } from '@/lib/fit-summaries';
-import { listJobs } from '@/lib/jobs';
 import { getProctoringReport } from '@/lib/proctoring';
 import { decisionBadge } from '@/lib/final-result';
 import { getCandidateResult } from '@/lib/results';
@@ -36,9 +35,8 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
   let fit;
   let proctoring;
   let resultView;
-  let jobs;
   try {
-    [review, fit, proctoring, resultView, jobs] = await Promise.all([getCandidateReview(id), getFitSummaryState(id), getProctoringReport(id), getCandidateResult(id), listJobs()]);
+    [review, fit, proctoring, resultView] = await Promise.all([getCandidateReview(id), getFitSummaryState(id), getProctoringReport(id), getCandidateResult(id)]);
   } catch (e) {
     if (e instanceof AppError && e.status === 404) notFound();
     throw e;
@@ -62,7 +60,7 @@ export default async function CandidateDetailPage({ params }: { params: Promise<
           </div>
           <CandidateReviewActions candidateId={review.id} canReview={review.status === 'PENDING_REVIEW'} ungradedRounds={ungradedRounds} />
           <div className="flex gap-2">
-            <CandidateEditButton candidate={{ id: review.id, candidateCode: review.candidateCode, name: review.name, email: review.email, jobId: review.jobId, hasStarted: review.attempts.length > 0 }} jobs={jobs.map((j) => ({ id: j.id, title: j.title }))} size="default" label="Edit candidate" />
+            <CandidateEditButton candidate={{ id: review.id, candidateCode: review.candidateCode, name: review.name, email: review.email }} size="default" label="Edit candidate" />
           <DeleteButton endpoint={`/api/admin/candidates/${review.id}`} dialogTitle={`Delete ${review.name}?`} redirectTo="/admin/candidates" size="default" label="Delete candidate">
             <p>
               This permanently deletes <strong className="text-foreground">{review.name}</strong> (<span className="font-mono">{review.candidateCode}</span>) with their answers, scores, results and resume file. Their Candidate ID stops working.

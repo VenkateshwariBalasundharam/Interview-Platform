@@ -1,12 +1,14 @@
 // Background sweep (server only). Does the work that used to happen only when a candidate next opened a page:
 //   1. submits rounds whose timer and grace window have run out,
 //   2. grades typed answers that were never graded (candidate closed the tab, AI was down) and completes the result,
-//   3. once an hour: removes expired photos / face references, dead rate-limit rows and old sweep history.
+//   3. queues due reminders and sends the candidate email outbox (lib/email.ts),
+//   4. once an hour: removes expired photos / face references, dead rate-limit rows and old sweep history.
 // It reuses finalizeAttempt and gradePendingAnswers, so the rules are exactly the ones candidates and admins already
 // get. Both are safe to repeat, so overlapping runs cannot double-submit or double-score. A short database lease
 // (the rate-limit table) keeps two runs from working at once anyway. Pure rules: lib/sweeper-core.ts.
 import { audit } from '@/lib/audit';
 import { prisma } from '@/lib/db';
+import { queueDueReminders, sendDueEmails } from '@/lib/email';
 import { purgeExpired } from '@/lib/face';
 import { AppError } from '@/lib/http';
 import { consumeRateLimit } from '@/lib/ratelimit';
@@ -38,6 +40,16 @@ const WAITING_STATUSES = ['SUBMITTED', 'AUTO_SUBMITTED'] as const;
 
 function errorCode(e: unknown): string {
   return e instanceof AppError ? e.code : e instanceof Error ? e.name : 'UnknownError';
+}
+
+/**
+ * A short reason for the email stages, so a problem is visible in the terminal instead of just "Error". Database errors are
+ * left out because their messages can repeat the values of a query.
+ */
+function errorDetail(e: unknown): string {
+  if (!(e instanceof Error) || e.name.startsWith('Prisma')) return '';
+  // eslint-disable-next-line no-control-regex
+  return e.message.replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, 200);
 }
 
 export async function runSweep(opts: { trigger: SweepTrigger; now?: Date; budgetMs?: number; actorId?: string } = { trigger: 'script' }): Promise<SweepReport> {
@@ -116,7 +128,26 @@ export async function runSweep(opts: { trigger: SweepTrigger; now?: Date; budget
     }
   }
 
-  // 3. Housekeeping, at most once an hour.
+  // 3. Candidate emails: queue reminders that are due, then send the outbox. Runs after grading so a slow AI never delays
+  //    an email, and each part is guarded so an email problem never stops the rest of the sweep.
+  try {
+    if (timeLeft()) report.emails.remindersQueued = await queueDueReminders(started);
+  } catch (e) {
+    report.errors += 1;
+    console.error('Sweep: reminders failed', { code: errorCode(e), detail: errorDetail(e) });
+  }
+  try {
+    if (timeLeft()) {
+      const sent = await sendDueEmails({ now: started, hasTimeLeft: timeLeft });
+      report.emails = { ...report.emails, sent: sent.sent, failed: sent.failed, retrying: sent.retrying, cancelled: sent.cancelled };
+      if (sent.stoppedEarly) report.stoppedEarly = true;
+    }
+  } catch (e) {
+    report.errors += 1;
+    console.error('Sweep: sending email failed', { code: errorCode(e), detail: errorDetail(e) });
+  }
+
+  // 4. Housekeeping, at most once an hour.
   try {
     const due = await consumeRateLimit('sweep:housekeeping', 1, HOUSEKEEPING_EVERY_MS);
     if (due.allowed && timeLeft()) {
@@ -154,7 +185,7 @@ export async function runSweep(opts: { trigger: SweepTrigger; now?: Date; budget
         action: 'SWEEP_RUN',
         entity: 'System',
         entityId: 'sweep',
-        meta: { trigger: opts.trigger, finalized: report.finalized, graded: report.graded, stillPending: report.stillPending, held: report.held, errors: report.errors },
+        meta: { trigger: opts.trigger, finalized: report.finalized, graded: report.graded, stillPending: report.stillPending, held: report.held, errors: report.errors, emailsSent: report.emails.sent, emailsFailed: report.emails.failed, remindersQueued: report.emails.remindersQueued },
       });
     }
   } catch (e) {

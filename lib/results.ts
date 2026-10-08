@@ -2,6 +2,8 @@
 // The rules themselves are in lib/final-result.ts.
 import { prisma } from '@/lib/db';
 import { audit } from '@/lib/audit';
+import { enqueueEmailsSafely } from '@/lib/email';
+import { emailKeys } from '@/lib/email-core';
 import { err } from '@/lib/http';
 import { ROUND_LIBRARY, ROUND_TYPES, type RoundType } from '@/lib/pipeline';
 import { isAiGradedRound } from '@/lib/round-engine';
@@ -151,6 +153,8 @@ export async function decideResult(candidateId: string, input: { decision: Decis
       ...(input.note ? { note: input.note } : {}),
     },
   });
+  // One neutral "your result is ready" email per candidate, whichever way the decision went; changing the decision later sends nothing more.
+  await enqueueEmailsSafely([{ candidateId, kind: 'RESULT_READY', dedupeKey: emailKeys.resultReady(candidateId) }]);
   return { decision: input.decision, overrode: result.suggestedDecision !== input.decision };
 }
 

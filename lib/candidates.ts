@@ -6,6 +6,7 @@ import { candidateFileToCsv } from '@/lib/candidate-file';
 import type { UpdateCandidateInput } from '@/lib/candidate-edit';
 import { CsvFormatError, parseCandidateCsv, type RejectedRow } from '@/lib/csv';
 import { prisma } from '@/lib/db';
+import { queueInvites } from '@/lib/email';
 import { err } from '@/lib/http';
 import { parseDob } from '@/lib/dob';
 import { createJob } from '@/lib/jobs';
@@ -20,6 +21,8 @@ export interface ImportResult {
   rejected: RejectedRow[];
   /** Set when the import created a new job from a typed title (a real import only). */
   createdJob: { id: string; title: string } | null;
+  /** Invitation emails queued by a real import. `disabledReason` is set when email is not set up, so nothing was queued. Null on a dry run. */
+  emails: { queued: number; disabledReason: string | null } | null;
 }
 
 /** A job typed on the import form: the title plus what the role needs. Rounds come from the level's preset. */
@@ -65,7 +68,7 @@ export async function importCandidates(input: { jobId?: string; newJob?: NewJobI
   rejected.sort((a, b) => a.row - b.row);
 
   if (input.dryRun || rows.length === 0) {
-    return { dryRun: input.dryRun, validCount: rows.length, created: [], rejected, createdJob: null };
+    return { dryRun: input.dryRun, validCount: rows.length, created: [], rejected, createdJob: null, emails: null };
   }
 
   const codes = await allocateCodes(rows.length);
@@ -108,12 +111,17 @@ export async function importCandidates(input: { jobId?: string; newJob?: NewJobI
     meta: { created: rows.length, rejected: rejected.length, newJob: Boolean(createdJob) },
   });
 
+  // Invitations go in the outbox and are sent by the background sweep, so a slow or broken mail server never fails the import.
+  const createdRows = await prisma.candidate.findMany({ where: { candidateCode: { in: codes } }, select: { id: true } });
+  const emails = await queueInvites(createdRows.map((r) => r.id));
+
   return {
     dryRun: false,
     validCount: rows.length,
     created: rows.map((r, i) => ({ row: r.row, candidateCode: codes[i], name: r.name, email: r.email })),
     rejected,
     createdJob,
+    emails,
   };
 }
 
@@ -133,17 +141,17 @@ export async function listCandidates(jobId?: string) {
       createdAt: true,
       job: { select: { id: true, title: true } },
       result: { select: { finalDecision: true } },
+      // The most recent email for this candidate, shown on the Candidates page.
+      emailNotifications: { orderBy: { createdAt: 'desc' }, take: 1, select: { kind: true, status: true, sentAt: true, lastError: true } },
       // Rounds submitted but not fully graded yet (typed answers waiting for the AI).
       attempts: { where: { status: { in: ['SUBMITTED', 'AUTO_SUBMITTED'] } }, select: { roundType: true } },
-      // Any round at all (even one in progress): once a candidate has started, their job can no longer be changed.
-      _count: { select: { attempts: true } },
       ...RESUME_SELECT,
     },
   });
   // The storage key stays on the server; the browser only gets a summary.
-  return rows.map(({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError, attempts, result, _count, ...rest }) => ({
+  return rows.map(({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError, attempts, result, emailNotifications, ...rest }) => ({
     ...rest,
-    hasStarted: _count.attempts > 0,
+    lastEmail: emailNotifications[0] ?? null,
     finalDecision: result?.finalDecision ?? null,
     ungradedRounds: attempts.map((a) => a.roundType),
     resume: toResumeSummary({ resumePath, resumeUploadedAt, resumeParsed, resumeParsedAt, resumeParseError }),
@@ -152,17 +160,14 @@ export async function listCandidates(jobId?: string) {
 
 /**
  * Edits a candidate. A new date of birth replaces the password hash, clears any lock and signs the candidate out
- * (their old session stops working). A new job is only accepted while the candidate has not started any round: their
- * personalised question sets and fit summary were made for the old job, so those are dropped and made again for the new one.
- * The audit log records which fields changed, never the values.
+ * (their old session stops working). The audit log records which fields changed, never the values.
  */
 export async function updateCandidate(id: string, patch: UpdateCandidateInput, adminId: string) {
-  const existing = await prisma.candidate.findUnique({ where: { id }, select: { id: true, candidateCode: true, jobId: true } });
+  const existing = await prisma.candidate.findUnique({ where: { id }, select: { id: true, candidateCode: true } });
   if (!existing) throw err.notFound('Candidate not found', 'CANDIDATE_NOT_FOUND');
 
   const data: Prisma.CandidateUpdateInput = {};
   const fields: string[] = [];
-  let newJobId: string | null = null;
   if (patch.name !== undefined) {
     data.name = patch.name;
     fields.push('name');
@@ -185,40 +190,18 @@ export async function updateCandidate(id: string, patch: UpdateCandidateInput, a
     data.lockedUntil = null;
     fields.push('unlock');
   }
-  // Picking the job they already have is not a change.
-  if (patch.jobId !== undefined && patch.jobId !== existing.jobId) {
-    const job = await prisma.job.findUnique({ where: { id: patch.jobId }, select: { id: true } });
-    if (!job) throw err.notFound('Job not found', 'JOB_NOT_FOUND');
-    data.job = { connect: { id: job.id } };
-    newJobId = job.id;
-    fields.push('job');
-  }
   if (fields.length === 0) throw err.badRequest('Nothing to change', 'NOTHING_TO_CHANGE');
 
   let updated;
   try {
-    updated = await prisma.$transaction(async (tx) => {
-      if (newJobId) {
-        // Checked again inside the transaction, so a round started a moment ago is not missed.
-        if ((await tx.attempt.count({ where: { candidateId: id } })) > 0) {
-          throw err.conflict(
-            'This candidate has already started a round, so the job cannot be changed. Reset their rounds first (open the candidate and use “Reset round”), or delete and register them again under the right job.',
-            'JOB_LOCKED',
-          );
-        }
-        await tx.questionSet.deleteMany({ where: { candidateId: id } }); // personalised sets were written for the old job
-        await tx.fitSummary.deleteMany({ where: { candidateId: id } }); // the job-fit summary compared the resume to the old job
-        await tx.result.deleteMany({ where: { candidateId: id } });
-      }
-      return tx.candidate.update({ where: { id }, data, select: { id: true, name: true, email: true, candidateCode: true } });
-    });
+    updated = await prisma.candidate.update({ where: { id }, data, select: { id: true, name: true, email: true, candidateCode: true } });
   } catch (e) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      throw err.conflict(newJobId ? 'A candidate with this email is already registered for the job you picked.' : 'Another candidate for this job already uses that email.', 'EMAIL_TAKEN');
+      throw err.conflict('Another candidate for this job already uses that email.', 'EMAIL_TAKEN');
     }
     throw e;
   }
 
-  await audit({ actorType: 'ADMIN', actorId: adminId, action: 'CANDIDATE_UPDATED', entity: 'Candidate', entityId: id, meta: { candidateCode: existing.candidateCode, fields, ...(newJobId ? { fromJobId: existing.jobId, toJobId: newJobId } : {}) } });
+  await audit({ actorType: 'ADMIN', actorId: adminId, action: 'CANDIDATE_UPDATED', entity: 'Candidate', entityId: id, meta: { candidateCode: existing.candidateCode, fields } });
   return updated;
 }

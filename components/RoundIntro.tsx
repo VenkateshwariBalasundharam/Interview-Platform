@@ -5,6 +5,7 @@ import { Alert } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FaceSetup } from '@/components/proctoring/FaceMonitor';
+import { MicCheck } from '@/components/MicCheck';
 import { cameraSkipKey, type CameraSkipReason } from '@/lib/face-client-core';
 import { apiFetch } from '@/lib/api-client';
 import type { RoundInfo } from '@/lib/round-engine';
@@ -15,6 +16,7 @@ export function RoundIntro({ round, canStart, blockedReason }: { round: RoundInf
   const [error, setError] = useState<string | null>(null);
   // Camera consent and face registration happen here, before the timer starts, so they never use up exam time.
   const needsCamera = round.faceLevel !== 'OFF';
+  const showMic = round.roundType !== 'CODING';
   const [cameraOk, setCameraOk] = useState(!needsCamera);
   const [cameraSkipped, setCameraSkipped] = useState(false);
   const onCameraReady = useCallback(() => setCameraOk(true), []);
@@ -71,21 +73,29 @@ export function RoundIntro({ round, canStart, blockedReason }: { round: RoundInf
               </p>
             )}
             {needsCamera && (
-              <div className="space-y-2">
-                <p className="text-sm text-muted-foreground">
-                  This round uses your camera.{round.faceLevel === 'IDENTITY' ? ' You will register your face once before you start.' : ''} {round.cameraRequired ? 'Finish the camera check below, then start the round.' : 'Finish the camera check below, or continue without a camera if yours does not work.'}
-                </p>
-                {cameraSkipped ? (
-                  <Alert tone="info">You are continuing without a camera. The hiring team will see that. You can start the round.</Alert>
-                ) : (
-                  <FaceSetup
-                    level={round.faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'}
-                    mode="preflight"
-                    onReady={onCameraReady}
-                    optional={!round.cameraRequired}
-                    onSkip={onCameraSkip}
-                  />
-                )}
+              <p className="text-sm text-muted-foreground">
+                This round uses your camera.{round.faceLevel === 'IDENTITY' ? ' You will register your face once before you start.' : ''} {round.cameraRequired ? 'Finish the camera check below, then start the round.' : 'Finish the camera check below, or continue without a camera if yours does not work.'}
+              </p>
+            )}
+            {/* Camera and microphone checks share one card, two equal columns side by side (stacked on narrow screens). The mic check is offered on typed answers, so every round except Coding gets it. It never blocks Start: typing always works. */}
+            {(needsCamera || showMic) && (
+              <div className={`grid w-full overflow-hidden rounded-lg border bg-card shadow-sm ${needsCamera && showMic ? 'divide-y md:grid-cols-2 md:divide-x md:divide-y-0' : 'max-w-lg'}`}>
+                {needsCamera &&
+                  (cameraSkipped ? (
+                    <div className="p-5">
+                      <Alert tone="info">You are continuing without a camera. The hiring team will see that. You can start the round.</Alert>
+                    </div>
+                  ) : (
+                    <FaceSetup
+                      embedded
+                      level={round.faceLevel === 'IDENTITY' ? 'IDENTITY' : 'PRESENCE'}
+                      mode="preflight"
+                      onReady={onCameraReady}
+                      optional={!round.cameraRequired}
+                      onSkip={onCameraSkip}
+                    />
+                  ))}
+                {showMic && <MicCheck embedded />}
               </div>
             )}
             <Button onClick={start} disabled={starting || !cameraOk}>
